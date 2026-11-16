@@ -155,6 +155,16 @@ export function wireEvents() {
   wired = true;
   const s = useApp.setState;
   void listen<Overview>("altflip://overview", (e) => s({ overview: e.payload }));
+  let usageTimer: ReturnType<typeof setTimeout> | undefined;
+  void listen("altflip://usage", () => {
+    clearTimeout(usageTimer);
+    usageTimer = setTimeout(() => {
+      void api
+        .overview(false)
+        .then((overview) => s({ overview }))
+        .catch(() => undefined);
+    }, 150);
+  });
   void listen<Settings>("altflip://settings", (e) => {
     applyTheme(e.payload.theme);
     s({ settings: e.payload });

@@ -630,7 +630,22 @@ impl Provider for Antigravity {
 
 pub const LIVE_SOURCE: &str = "Antigravity (live)";
 
+static SERVER_EMAIL: std::sync::Mutex<Option<(Instant, Option<String>)>> = std::sync::Mutex::new(None);
+
 pub fn current_server_email() -> Option<String> {
+    if let Some((at, e)) = SERVER_EMAIL.lock().ok().and_then(|c| c.clone()) {
+        if at.elapsed() < Duration::from_secs(5) {
+            return e;
+        }
+    }
+    let e = find_server_email();
+    if let Ok(mut c) = SERVER_EMAIL.lock() {
+        *c = Some((Instant::now(), e.clone()));
+    }
+    e
+}
+
+fn find_server_email() -> Option<String> {
     for p in process::snapshot() {
         let Some(csrf) = is_language_server(&p) else { continue };
         for port in listening_ports(&p) {

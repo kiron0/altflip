@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Activity, ArrowLeft, BarChart3, LayoutDashboard, Plus, RefreshCw, Settings as Gear, Users } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
+import { AccountsIcon, ActivityIcon, BackIcon, DashboardIcon, SettingsIcon, UsageIcon } from "@/components/NavIcons";
 import { api, type AppInfo } from "@/lib/api";
 import { useApp, wireEvents, type Page } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -15,10 +16,10 @@ import { Onboarding } from "@/pages/Onboarding";
 import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
 const NAV: { page: Page; label: string; icon: React.ReactNode; hint: string }[] = [
-  { page: "dashboard", label: "Dashboard", icon: <LayoutDashboard />, hint: "Every tool and its active account" },
-  { page: "accounts", label: "Accounts", icon: <Users />, hint: "All saved accounts" },
-  { page: "usage", label: "Usage", icon: <BarChart3 />, hint: "Provider-reported usage" },
-  { page: "activity", label: "Activity", icon: <Activity />, hint: "Switch history and events" },
+  { page: "dashboard", label: "Dashboard", icon: <DashboardIcon />, hint: "Every tool and its active account" },
+  { page: "accounts", label: "Accounts", icon: <AccountsIcon />, hint: "All saved accounts" },
+  { page: "usage", label: "Usage", icon: <UsageIcon />, hint: "Provider-reported usage" },
+  { page: "activity", label: "Activity", icon: <ActivityIcon />, hint: "Switch history and events" },
 ];
 
 function SummaryCard({ isMac }: { isMac: boolean }) {
@@ -147,7 +148,7 @@ export function App() {
           {page === "settings" ? (
             <nav aria-label="Settings" className="flex-1 overflow-auto">
               <button type="button" onClick={() => navigate(lastPage)} title="Back (Esc)" className="nav-item">
-                <ArrowLeft />
+                <BackIcon />
                 <span className="nav-label flex-1">Back to app</span>
               </button>
               <div className="nav-heading">Settings</div>
@@ -192,7 +193,7 @@ export function App() {
           <div className="space-y-2 pt-2">
             {page !== "settings" && (
               <button type="button" title="Settings" onClick={() => navigate("settings")} className="nav-item">
-                <Gear />
+                <SettingsIcon />
                 <span className="nav-label flex-1">Settings</span>
               </button>
             )}

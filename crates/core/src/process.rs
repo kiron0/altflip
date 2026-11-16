@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
+#[derive(Clone)]
 pub struct ProcView {
     pub pid: u32,
     pub name: String,
@@ -10,7 +11,30 @@ pub struct ProcView {
     pub cmd: Vec<String>,
 }
 
+static SNAPSHOT: std::sync::Mutex<Option<(Instant, Vec<ProcView>)>> = std::sync::Mutex::new(None);
+
 pub fn snapshot() -> Vec<ProcView> {
+    if let Ok(cache) = SNAPSHOT.lock() {
+        if let Some((at, procs)) = cache.as_ref() {
+            if at.elapsed() < Duration::from_millis(1500) {
+                return procs.clone();
+            }
+        }
+    }
+    let procs = fresh_snapshot();
+    if let Ok(mut cache) = SNAPSHOT.lock() {
+        *cache = Some((Instant::now(), procs.clone()));
+    }
+    procs
+}
+
+pub fn invalidate() {
+    if let Ok(mut cache) = SNAPSHOT.lock() {
+        *cache = None;
+    }
+}
+
+fn fresh_snapshot() -> Vec<ProcView> {
     let mut sys = System::new();
     sys.refresh_processes_specifics(
         ProcessesToUpdate::All,
@@ -94,6 +118,7 @@ pub fn wait_exit(pids: &[u32], timeout: Duration) -> bool {
     let start = Instant::now();
     loop {
         if pids.iter().all(|p| !is_running(*p)) {
+            invalidate();
             return true;
         }
         if start.elapsed() > timeout {

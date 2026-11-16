@@ -15,6 +15,7 @@ pub struct AppState {
     pub notified: Mutex<HashSet<String>>,
     pub last_refresh: Mutex<Option<Instant>>,
     pub quick_hidden_at: Mutex<Option<Instant>>,
+    pub tray_key: Mutex<String>,
 }
 
 #[cfg(target_os = "macos")]
@@ -246,6 +247,7 @@ pub fn run() {
                 notified: Mutex::new(HashSet::new()),
                 last_refresh: Mutex::new(None),
                 quick_hidden_at: Mutex::new(None),
+                tray_key: Mutex::new(String::new()),
             });
             let handle = app.handle().clone();
             tray::build(&handle)?;

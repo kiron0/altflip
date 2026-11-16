@@ -145,9 +145,24 @@ pub fn registry(ctx: Ctx) -> Vec<Arc<dyn Provider>> {
     ]
 }
 
+type VersionCache = std::collections::HashMap<std::path::PathBuf, (Option<std::time::SystemTime>, Option<String>)>;
+static VERSIONS: std::sync::Mutex<Option<VersionCache>> = std::sync::Mutex::new(None);
+
 pub(crate) fn version_of(bin: &std::path::Path) -> Option<String> {
-    let out = process::run_capture(bin, &["--version"], &[], Duration::from_secs(8)).ok()?;
-    out.lines().next().map(|l| l.trim().to_string()).filter(|s| !s.is_empty())
+    let stamp = std::fs::metadata(bin).and_then(|m| m.modified()).ok();
+    if let Some((s, v)) = VERSIONS.lock().ok().and_then(|m| m.as_ref().and_then(|m| m.get(bin).cloned())) {
+        if s == stamp {
+            return v;
+        }
+    }
+    let v = process::run_capture(bin, &["--version"], &[], Duration::from_secs(8))
+        .ok()
+        .and_then(|out| out.lines().next().map(|l| l.trim().to_string()))
+        .filter(|s| !s.is_empty());
+    if let Ok(mut m) = VERSIONS.lock() {
+        m.get_or_insert_with(Default::default).insert(bin.to_path_buf(), (stamp, v.clone()));
+    }
+    v
 }
 
 pub(crate) fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {

@@ -1063,6 +1063,7 @@ impl Engine {
                 }
             }
         }
+        let _ = self.db().prune_usage(7);
         self.db().latest_usage()
     }
 

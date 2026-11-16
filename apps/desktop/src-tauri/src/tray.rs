@@ -159,8 +159,34 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn menu_key(o: &Overview) -> String {
+    let mut key = format!("{}|", o.incomplete.len());
+    for p in &o.providers {
+        key.push_str(&format!(
+            "{}:{}:{}:{}:{:?}:{:?};",
+            p.info.id.as_str(),
+            p.info.installed,
+            p.info.experimental,
+            p.switching_enabled,
+            p.active_account_id,
+            p.activation_state
+        ));
+        for a in &p.accounts {
+            key.push_str(&format!("{}:{}:{:?},", a.row.id, a.row.label, a.row.email));
+        }
+    }
+    key
+}
+
 pub fn refresh(app: &AppHandle, o: &Overview) {
     let Some(tray) = app.tray_by_id(TRAY_ID) else { return };
+    let key = menu_key(o);
+    if let Ok(mut last) = app.state::<AppState>().tray_key.lock() {
+        if *last == key {
+            return;
+        }
+        *last = key;
+    }
     if let Ok(menu) = build_menu(app, Some(o)) {
         let _ = tray.set_menu(Some(menu));
     }

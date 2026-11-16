@@ -676,6 +676,21 @@ impl Store {
             .map_err(db_err)
     }
 
+    pub fn prune_usage(&self, keep_days: i64) -> Result<usize> {
+        let cutoff = (chrono::Utc::now() - chrono::Duration::days(keep_days))
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        self.conn
+            .execute(
+                "DELETE FROM usage_snapshots WHERE observed_at < ?1 AND id NOT IN (
+                    SELECT u.id FROM usage_snapshots u JOIN (
+                        SELECT account_id, usage_type, MAX(observed_at) AS m FROM usage_snapshots GROUP BY account_id, usage_type
+                    ) l ON l.account_id = u.account_id AND l.usage_type = u.usage_type AND l.m = u.observed_at
+                 )",
+                params![cutoff],
+            )
+            .map_err(db_err)
+    }
+
     pub fn latest_usage(&self) -> Result<Vec<UsageRow>> {
         let mut stmt = self
             .conn
@@ -783,6 +798,31 @@ mod tests {
         assert_eq!(s.active_for(ProviderId::Claude).unwrap().unwrap().account_id, "b");
         s.delete_account("b").unwrap();
         assert!(s.active_for(ProviderId::Claude).unwrap().is_none());
+    }
+
+    #[test]
+    fn prune_keeps_latest_reading() {
+        let s = Store::open_in_memory().unwrap();
+        s.insert_account("a", &new(ProviderId::Claude, "k1")).unwrap();
+        let reading = |at: &str, pct: f64| UsageReading {
+            usage_type: "five_hour".into(),
+            label: "5-hour usage".into(),
+            used_percent: Some(pct),
+            used_value: None,
+            limit_value: None,
+            window_minutes: Some(300),
+            reset_at: None,
+            source: "Anthropic".into(),
+            confidence: "provider-reported".into(),
+            observed_at: at.into(),
+            account_key: None,
+        };
+        s.add_usage(ProviderId::Claude, "a", &reading("2020-01-01T00:00:00.000Z", 10.0)).unwrap();
+        s.add_usage(ProviderId::Claude, "a", &reading("2020-01-02T00:00:00.000Z", 20.0)).unwrap();
+        assert_eq!(s.prune_usage(7).unwrap(), 1);
+        let rows = s.latest_usage().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].reading.used_percent, Some(20.0));
     }
 
     #[test]
