@@ -1,0 +1,32 @@
+[package]
+name = "altflip-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "AltFlip — switch between AI coding accounts"
+
+[lib]
+name = "altflip_desktop_lib"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "AltFlip"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+altflip-core.workspace = true
+altflip-engine.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"

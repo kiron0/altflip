@@ -1,0 +1,15 @@
+[package]
+name = "altflip-database"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+altflip-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rusqlite.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

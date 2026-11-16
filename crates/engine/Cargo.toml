@@ -1,0 +1,18 @@
+[package]
+name = "altflip-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+altflip-core.workspace = true
+altflip-database.workspace = true
+altflip-providers.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+chrono.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

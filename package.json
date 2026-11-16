@@ -1,0 +1,14 @@
+{
+  "name": "altflip",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.30.0",
+  "scripts": {
+    "dev": "pnpm --filter @altflip/desktop tauri dev",
+    "build": "pnpm --filter @altflip/desktop tauri build",
+    "typecheck": "pnpm --filter @altflip/desktop typecheck",
+    "format": "cargo fmt --all",
+    "format:check": "cargo fmt --all -- --check",
+    "test": "cargo test --workspace && pnpm --filter @altflip/desktop test"
+  }
+}

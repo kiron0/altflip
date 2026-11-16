@@ -1,0 +1,177 @@
+import { useEffect, useState } from "react";
+import { AlertTriangle, ArrowRight, Plus, TerminalSquare } from "lucide-react";
+import { api, errorText, type ProviderState, type SwitchRecord } from "@/lib/api";
+import { useApp } from "@/lib/store";
+import { activeAccount, cn, plural, relativeTime } from "@/lib/utils";
+import { PageHeader } from "@/components/PageHeader";
+import { AccountRow } from "@/components/AccountRow";
+import { ProviderIcon } from "@/components/ProviderIcon";
+import { RecoveryBanner } from "@/components/Dialogs";
+import { StatusBadge, compatText, compatTone, modeShort } from "@/components/labels";
+import { Button } from "@/components/ui/button";
+import { Badge, Card } from "@/components/ui/primitives";
+
+function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "warn" }) {
+  return (
+    <Card className="px-5 py-4">
+      <div className="label-mono text-faint">{label}</div>
+      <div className={cn("font-display mt-1.5 text-[24px] font-semibold tabular-nums", tone === "warn" && "text-warn")}>{value}</div>
+    </Card>
+  );
+}
+
+function LiveLine({ p }: { p: ProviderState }) {
+  const toast = useApp((s) => s.toast);
+  const [saving, setSaving] = useState(false);
+  if (p.liveError) return <p className="text-[12px] text-danger">Could not read the current sign-in: {p.liveError}</p>;
+  if (!p.live) return <p className="text-[12px] text-muted">Not signed in right now.</p>;
+  if (p.live.savedAccountId) return null;
+  const who = p.live.identity.email ?? p.live.identity.displayName ?? "an unknown account";
+  return (
+    <div className="flex items-center gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[13px]">
+      <AlertTriangle className="size-3.5 shrink-0 text-warn" />
+      <span className="flex-1">
+        {p.info.name} is signed in as <b className="font-medium">{who}</b>, which isn't saved yet.
+      </span>
+      <Button
+        size="sm"
+        disabled={saving}
+        onClick={async () => {
+          setSaving(true);
+          try {
+            const r = await api.saveCurrent(p.info.id);
+            toast({ kind: "success", text: `Saved ${r.label}` });
+          } catch (e) {
+            toast({ kind: "error", text: "Could not save", detail: errorText(e) });
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        Save account
+      </Button>
+    </div>
+  );
+}
+
+function ProviderCard({ p }: { p: ProviderState }) {
+  const openAdd = useApp((s) => s.openAdd);
+  const navigate = useApp((s) => s.navigate);
+  const cli = p.info.processes.filter((x) => x.kind === "cli").length;
+  const apps = p.info.processes.filter((x) => x.kind === "app" || x.kind === "ide").length;
+  const active = activeAccount(p);
+  const running = [cli && plural(cli, "running session"), apps && plural(apps, "open app")].filter(Boolean).join(", ");
+  return (
+    <Card className="flex flex-col">
+      <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
+        <ProviderIcon id={p.info.id} size={26} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="font-display text-[15px] font-semibold">{p.info.name}</span>
+            <Badge tone={compatTone[p.info.compatibility]}>{compatText[p.info.compatibility]}</Badge>
+          </div>
+          <div className="truncate text-[11.5px] text-muted">
+            {p.info.version ?? "Version unknown"} · {modeShort[p.info.switchMode]}
+            {running && ` · ${running}`}
+          </div>
+        </div>
+        <Button size="icon" variant="ghost" aria-label={`Add ${p.info.name} account`} onClick={() => openAdd(p.info.id)}>
+          <Plus />
+        </Button>
+      </div>
+      <div className="flex flex-1 flex-col gap-2 p-2">
+        <div className="px-2 empty:hidden">
+          <LiveLine p={p} />
+        </div>
+        {p.activationState === "drifted" && active && (
+          <p className="px-2 text-[12px] text-warn">Selected: {active.label}. The sign-in was changed outside AltFlip.</p>
+        )}
+        {p.accounts.length === 0 ? (
+          <button
+            onClick={() => openAdd(p.info.id)}
+            className="mx-2 mb-1 rounded-2xl border border-dashed border-border-strong px-3 py-5 text-center text-[13px] text-muted hover:bg-surface-2"
+          >
+            No saved accounts yet. Add one.
+          </button>
+        ) : (
+          <div>
+            {p.accounts.map((a) => (
+              <AccountRow key={a.id} account={a} provider={p} onOpen={() => navigate("accounts", a.id)} />
+            ))}
+          </div>
+        )}
+        {!p.switchingEnabled && p.switchingDisabledReason && p.accounts.length > 0 && (
+          <p className="px-2 pb-1 text-[11.5px] text-faint">{p.switchingDisabledReason}</p>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+export function Dashboard() {
+  const overview = useApp((s) => s.overview);
+  const navigate = useApp((s) => s.navigate);
+  const [recent, setRecent] = useState<SwitchRecord[]>([]);
+
+  useEffect(() => {
+    void api.history(6).then(setRecent).catch(() => undefined);
+  }, [overview?.generatedAt]);
+
+  if (!overview) return null;
+  const shown = overview.providers.filter((p) => p.info.installed || p.accounts.length > 0);
+  const missing = overview.providers.filter((p) => !p.info.installed && p.accounts.length === 0);
+  const accounts = overview.providers.reduce((n, p) => n + p.accounts.length, 0);
+  const attention =
+    overview.incomplete.length +
+    overview.providers.filter((p) => p.activationState === "drifted" || p.activationState === "signed-out").length +
+    overview.providers.reduce((n, p) => n + p.accounts.filter((a) => a.health === "expired" || a.health === "needs-reauth").length, 0);
+
+  return (
+    <>
+      <PageHeader title="Dashboard" subtitle="Your AI coding accounts and which one each tool uses." />
+      <RecoveryBanner />
+      {!overview.credentialStore.available && (
+        <div className="rounded-[20px] border border-danger/40 bg-danger-soft px-5 py-4 text-[12.5px]">
+          <b className="font-medium">{overview.credentialStore.backend} is unavailable.</b> Switching is off until the system
+          credential store can be used. {overview.credentialStore.message}
+        </div>
+      )}
+      <div className="grid grid-cols-4 gap-3">
+        <Stat label="Tools detected" value={`${overview.providers.filter((p) => p.info.installed).length} of ${overview.providers.length}`} />
+        <Stat label="Saved accounts" value={accounts} />
+        <Stat label="Active selections" value={overview.providers.filter((p) => p.activeAccountId).length} />
+        <Stat label="Needs attention" value={attention} tone={attention ? "warn" : undefined} />
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {shown.map((p) => (
+          <ProviderCard key={p.info.id} p={p} />
+        ))}
+      </div>
+      {missing.length > 0 && (
+        <p className="mt-3 flex items-center gap-1.5 text-[12px] text-faint">
+          <TerminalSquare className="size-3.5" />
+          Not found on this computer: {missing.map((m) => m.info.name).join(", ")}.
+        </p>
+      )}
+      <div className="mt-3 flex items-center">
+        <h2 className="label-mono flex-1 text-faint">Recent switches</h2>
+        <Button size="sm" variant="ghost" onClick={() => navigate("activity")}>
+          All activity <ArrowRight />
+        </Button>
+      </div>
+      <Card className="divide-y divide-border overflow-hidden">
+        {recent.length === 0 && <div className="px-4 py-5 text-center text-[12.5px] text-muted">No switches yet.</div>}
+        {recent.map((r) => (
+          <div key={r.id} className="flex items-center gap-3 px-5 py-3">
+            <ProviderIcon id={r.provider} size={16} />
+            <span className="min-w-0 flex-1 truncate">
+              {r.fromLabel ?? "—"} <ArrowRight className="inline size-3 text-faint" /> <b className="font-medium">{r.toLabel}</b>
+            </span>
+            <StatusBadge status={r.status} />
+            <span className="w-24 text-right text-[11.5px] text-muted">{relativeTime(r.startedAt)}</span>
+          </div>
+        ))}
+      </Card>
+    </>
+  );
+}
