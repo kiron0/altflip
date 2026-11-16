@@ -172,6 +172,14 @@ impl Antigravity {
         Antigravity { ctx }
     }
 
+    fn server_email(&self) -> Option<String> {
+        if cfg!(test) {
+            None
+        } else {
+            current_server_email()
+        }
+    }
+
     fn credential(&self) -> Locator {
         Locator::Credential { service: SERVICE.into(), account: ACCOUNT.into() }
     }
@@ -407,10 +415,16 @@ impl Provider for Antigravity {
     }
 
     fn normalize(&self, snap: &mut Snapshot) {
-        let ide = self.ide_identity(snap);
+        let running = self.server_email();
+        let ide = self
+            .ide_identity(snap)
+            .filter(|(_, s)| running.is_none() || s.email.as_deref().map(str::to_lowercase) == running);
         let keychain = snap.data_for(&self.credential()).and_then(decode_payload);
-        let email =
-            ide.as_ref().and_then(|(_, s)| s.email.clone()).or_else(|| keychain.as_ref().and_then(payload_email));
+        let keychain_email = keychain.as_ref().and_then(payload_email).map(|e| e.to_lowercase());
+        let email = running
+            .clone()
+            .or_else(|| ide.as_ref().and_then(|(_, s)| s.email.clone()))
+            .or_else(|| keychain_email.clone());
         let keychain_rt = keychain.as_ref().and_then(refresh_token).map(str::to_string);
         let statuses: Vec<(PathBuf, Option<String>)> = self
             .state_dbs()
@@ -427,9 +441,12 @@ impl Provider for Antigravity {
             let keep = match &r.locator {
                 Locator::StateKey { path, .. } => {
                     let db_email = statuses.iter().find(|(p, _)| p == path).and_then(|(_, e)| e.clone());
-                    db_email.is_some() && db_email == email
+                    db_email.is_some() && db_email.map(|e| e.to_lowercase()) == email.as_ref().map(|e| e.to_lowercase())
                 }
-                loc if *loc == self.credential() => ide.is_none() || keychain.as_ref().and_then(payload_email) == email,
+                loc if *loc == self.credential() => match &keychain_email {
+                    Some(k) => email.as_deref().map(str::to_lowercase).as_deref() == Some(k.as_str()),
+                    None => ide.is_none(),
+                },
                 _ => {
                     let side = r.data.as_deref().and_then(decode_payload);
                     match (&side, &email, &keychain_rt) {
@@ -612,6 +629,19 @@ impl Provider for Antigravity {
 }
 
 pub const LIVE_SOURCE: &str = "Antigravity (live)";
+
+pub fn current_server_email() -> Option<String> {
+    for p in process::snapshot() {
+        let Some(csrf) = is_language_server(&p) else { continue };
+        for port in listening_ports(&p) {
+            let Some(v) = language_server_call(port, csrf, "GetUserStatus") else { continue };
+            if let Some(e) = v.pointer("/userStatus/email").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) {
+                return Some(e.to_lowercase());
+            }
+        }
+    }
+    None
+}
 pub const LOCAL_SOURCE: &str = "Antigravity (local)";
 
 fn is_language_server(p: &ProcView) -> Option<&str> {
@@ -661,7 +691,7 @@ fn language_server_call(port: u16, csrf: &str, method: &str) -> Option<serde_jso
     let tls = ureq::tls::TlsConfig::builder().disable_verification(true).build();
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(6)))
+            .timeout_global(Some(Duration::from_secs(3)))
             .http_status_as_error(false)
             .tls_config(tls)
             .build(),

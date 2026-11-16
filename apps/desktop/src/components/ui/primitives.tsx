@@ -278,7 +278,7 @@ export function Select<T extends string | number>({
             id={`${id}-list`}
             role="listbox"
             aria-label={label}
-            className="animate-pop fixed z-[80] overflow-auto overscroll-contain rounded-2xl border border-border bg-surface p-1.5 shadow-panel"
+            className="animate-pop glass-pop fixed z-[80] overflow-auto overscroll-contain rounded-2xl border border-border bg-surface p-1.5 shadow-panel"
             style={{ left: rect.left, width: rect.width, maxHeight: rect.maxHeight, ...(rect.up ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.top + 6 }) }}
             onKeyDown={onKey}
           >
@@ -396,7 +396,7 @@ export function Dialog({
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div
-        className={cn("fixed inset-0 bg-black/40 backdrop-blur-sm", closing ? "modal-backdrop-out" : "modal-backdrop-in")}
+        className={cn("fixed inset-0 bg-black/25 backdrop-blur-[6px]", closing ? "modal-backdrop-out" : "modal-backdrop-in")}
         onMouseDown={() => dismissible && onClose()}
       />
       <div
@@ -407,7 +407,7 @@ export function Dialog({
         aria-label={typeof title === "string" ? title : undefined}
         onMouseDown={(e) => e.stopPropagation()}
         className={cn(
-          "relative z-10 flex max-h-full w-full flex-col overflow-hidden rounded-[22px] border border-border bg-surface shadow-panel outline-none",
+          "glass-pop relative z-10 flex max-h-full w-full flex-col overflow-hidden rounded-[22px] border border-border bg-surface shadow-panel outline-none",
           closing ? "modal-dialog-out" : "modal-dialog-in",
         )}
         style={{ maxWidth: width }}

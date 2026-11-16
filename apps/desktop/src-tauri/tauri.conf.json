@@ -21,6 +21,7 @@
         "minHeight": 600,
         "visible": false,
         "titleBarStyle": "Overlay",
+        "transparent": true,
         "hiddenTitle": true,
         "center": true,
         "dragDropEnabled": false
@@ -29,8 +30,8 @@
         "label": "quick",
         "title": "AltFlip",
         "url": "index.html?surface=quick",
-        "width": 360,
-        "height": 540,
+        "width": 420,
+        "height": 580,
         "visible": false,
         "decorations": false,
         "resizable": false,

@@ -56,6 +56,27 @@ pub(crate) fn hide_quick(app: &AppHandle) {
     }
 }
 
+fn apply_glass(app: &AppHandle) {
+    use tauri::window::{Effect, EffectState, EffectsBuilder};
+    for (label, radius) in [("main", 0.0), ("quick", 18.0)] {
+        let Some(w) = app.get_webview_window(label) else { continue };
+        let effect = if cfg!(target_os = "macos") {
+            Some(if label == "quick" { Effect::Popover } else { Effect::Sidebar })
+        } else if cfg!(target_os = "windows") && label == "main" {
+            Some(Effect::Mica)
+        } else {
+            None
+        };
+        if let Some(effect) = effect {
+            let mut b = EffectsBuilder::new().effect(effect).state(EffectState::FollowsWindowActiveState);
+            if radius > 0.0 {
+                b = b.radius(radius);
+            }
+            let _ = w.set_effects(b.build());
+        }
+    }
+}
+
 pub(crate) fn toggle_quick(app: &AppHandle, anchor: Option<Rect>) {
     let Some(w) = app.get_webview_window("quick") else { return };
     if w.is_visible().unwrap_or(false) {
@@ -188,6 +209,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
+            apply_glass(app.handle());
             let dir = data_dir(app)?;
             let home = altflip_core::home_dir()?;
             let engine =
