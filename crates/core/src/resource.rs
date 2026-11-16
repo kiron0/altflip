@@ -12,7 +12,6 @@ pub enum Locator {
     JsonKey { path: PathBuf, key: String },
     Credential { service: String, account: String },
     StateKey { path: PathBuf, key: String },
-    Selection { app: String, key: String },
 }
 
 impl Locator {
@@ -22,7 +21,6 @@ impl Locator {
             Locator::JsonKey { path, key } => format!("{} ({key})", path.display()),
             Locator::Credential { service, .. } => format!("credential store: {service}"),
             Locator::StateKey { path, key } => format!("{} ({key})", path.display()),
-            Locator::Selection { app, key } => format!("{app} selection: {key}"),
         }
     }
 }
@@ -113,10 +111,6 @@ impl Snapshot {
     }
 }
 
-fn selection_only(app: &str) -> Error {
-    Error::Unsupported(format!("{app} selections are changed through {app} itself, not by writing files"))
-}
-
 #[derive(Clone)]
 pub struct ResourceIo {
     pub secrets: Arc<dyn SecretStore>,
@@ -141,7 +135,6 @@ impl ResourceIo {
             }
             Locator::Credential { service, account } => self.secrets.get(service, account),
             Locator::StateKey { path, key } => crate::statedb::read(path, key),
-            Locator::Selection { app, .. } => Err(selection_only(app)),
         }
     }
 
@@ -170,7 +163,6 @@ impl ResourceIo {
             }
             Locator::Credential { service, account } => self.secrets.set(service, account, data),
             Locator::StateKey { path, key } => crate::statedb::write(path, key, data),
-            Locator::Selection { app, .. } => Err(selection_only(app)),
         }
     }
 
@@ -191,7 +183,6 @@ impl ResourceIo {
             }
             Locator::Credential { service, account } => self.secrets.delete(service, account),
             Locator::StateKey { path, key } => crate::statedb::delete(path, key),
-            Locator::Selection { app, .. } => Err(selection_only(app)),
         }
     }
 

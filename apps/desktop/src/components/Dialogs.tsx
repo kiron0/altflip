@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, Check, Download, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { api, errorText, type ApiError, type ProviderId, type ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -94,47 +94,6 @@ function AntigravitySteps({ lines, running }: { lines: string[]; running: boolea
   );
 }
 
-const OPENCODE_STEPS = [
-  { title: "Sign in to OpenCode", text: "Run opencode auth login in Terminal once for each account or key you want." },
-  { title: "Keep OpenCode's background service running", text: "Open OpenCode or run any opencode command. AltFlip switches through it." },
-  { title: "Import here", text: "Each service with more than one sign-in, such as two OpenCode Console logins, becomes one account per sign-in." },
-];
-
-const OPENCODE_LIMITS = [
-  "Needs OpenCode 2. OpenCode 1.x is not supported.",
-  "Switching is instant for sessions on the background service. Sessions started with --standalone keep the old sign-in until restarted.",
-  "Sign-ins added later appear after you import again.",
-  "Usage limits are not shown for OpenCode.",
-];
-
-function OpenCodeSteps() {
-  return (
-    <div className="space-y-2">
-      <ol className="space-y-0.5 rounded-2xl border border-border bg-card p-2 shadow-item">
-        {OPENCODE_STEPS.map((s, i) => (
-          <li key={s.title} className="flex gap-3 rounded-xl px-2.5 py-2">
-            <span className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-3 font-mono text-[10.5px] font-semibold text-muted">
-              {i + 1}
-            </span>
-            <span className="min-w-0">
-              <span className="block text-[13px] font-medium">{s.title}</span>
-              <span className="block text-[12px] text-faint">{s.text}</span>
-            </span>
-          </li>
-        ))}
-      </ol>
-      <ul className="space-y-1 rounded-2xl bg-surface-2 px-4 py-3 text-[12px] text-muted">
-        {OPENCODE_LIMITS.map((l) => (
-          <li key={l} className="flex gap-2">
-            <span className="mt-[7px] size-1 shrink-0 rounded-full bg-faint" aria-hidden />
-            <span>{l}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 function LinkifiedLine({ line }: { line: string }) {
   const m = line.match(/https?:\/\/\S+/);
   if (!m) return <div className="break-words">{line}</div>;
@@ -157,7 +116,7 @@ export function AddAccountDialog() {
   const overview = useApp((s) => s.overview);
   const toast = useApp((s) => s.toast);
   const [provider, setProvider] = useState<ProviderId | null>(null);
-  const [method, setMethod] = useState<"login" | "current" | "import">("login");
+  const [method, setMethod] = useState<"login" | "current">("login");
   const [label, setLabel] = useState("");
   const [category, setCategory] = useState("");
   const [busy, setBusy] = useState(false);
@@ -183,7 +142,7 @@ export function AddAccountDialog() {
 
   useEffect(() => {
     if (!state) return;
-    setMethod(state.info.id === "opencode" ? "import" : state.info.capabilities.isolatedLogin ? "login" : "current");
+    setMethod(state.info.capabilities.isolatedLogin ? "login" : "current");
   }, [state?.info.id]);
 
   useEffect(() => {
@@ -230,18 +189,6 @@ export function AddAccountDialog() {
       }
       return;
     }
-    if (method === "import") {
-      try {
-        const rows = await api.importAccounts(provider);
-        toast({ kind: "success", text: rows.length === 1 ? `Imported ${rows[0].label}` : `Imported ${rows.length} sign-ins` });
-        openAdd(null);
-      } catch (e) {
-        setError(errorText(e));
-      } finally {
-        setBusy(false);
-      }
-      return;
-    }
     try {
       const row = await api.saveCurrent(provider, label, category || null);
       toast({ kind: "success", text: `Saved ${row.label}` });
@@ -256,7 +203,7 @@ export function AddAccountDialog() {
   if (!addFor) return null;
   const live = state?.live;
   const alreadySaved = live?.savedAccountId ? state?.accounts.find((a) => a.id === live.savedAccountId) : undefined;
-  const canSubmit = !!provider && !busy && (method === "login" || method === "import" || !!live);
+  const canSubmit = !!provider && !busy && (method === "login" || !!live);
 
   return (
     <Dialog
@@ -269,16 +216,14 @@ export function AddAccountDialog() {
         <>
           <Button onClick={close}>{loginId ? "Cancel sign-in" : "Cancel"}</Button>
           <Button variant="primary" disabled={!canSubmit} onClick={() => void submit()}>
-            {busy ? <Spinner /> : method === "login" ? <LogIn /> : method === "import" ? <Download /> : <Save />}
+            {busy ? <Spinner /> : method === "login" ? <LogIn /> : <Save />}
             {method === "login"
               ? busy
                 ? "Waiting for sign-in"
                 : "Sign in"
-              : method === "import"
-                ? "Import sign-ins"
-                : alreadySaved
-                  ? "Update saved account"
-                  : "Save account"}
+              : alreadySaved
+                ? "Update saved account"
+                : "Save account"}
           </Button>
         </>
       }
@@ -322,16 +267,6 @@ export function AddAccountDialog() {
                   }
                 />
               )}
-              {state.info.id === "opencode" && (
-                <MethodOption
-                  selected={method === "import"}
-                  disabled={busy}
-                  onSelect={() => setMethod("import")}
-                  icon={<Download className="size-4" />}
-                  title="Import every sign-in stored in OpenCode"
-                  text="Adds one account for each sign-in OpenCode already holds, such as each OpenCode Console login. Add more with opencode auth login."
-                />
-              )}
               <MethodOption
                 selected={method === "current"}
                 disabled={busy}
@@ -346,27 +281,22 @@ export function AddAccountDialog() {
               />
             </div>
             {state.info.id === "antigravity" && method === "login" && <AntigravitySteps lines={lines} running={!!loginId} />}
-            {state.info.id === "opencode" && method === "import" && <OpenCodeSteps />}
-            {method !== "import" && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_170px]">
-                <Field label="Name">
-                  <Input value={label} placeholder={live?.identity.email?.split("@")[0] ?? "Work"} onChange={(e) => setLabel(e.target.value)} disabled={busy} />
-                </Field>
-                <Field label="Category">
-                  <Select
-                    label="Category"
-                    className="w-full"
-                    value={category}
-                    onChange={setCategory}
-                    options={CATEGORIES.map((c) => ({ value: c, label: c || "None" }))}
-                  />
-                </Field>
-              </div>
-            )}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_170px]">
+              <Field label="Name">
+                <Input value={label} placeholder={live?.identity.email?.split("@")[0] ?? "Work"} onChange={(e) => setLabel(e.target.value)} disabled={busy} />
+              </Field>
+              <Field label="Category">
+                <Select
+                  label="Category"
+                  className="w-full"
+                  value={category}
+                  onChange={setCategory}
+                  options={CATEGORIES.map((c) => ({ value: c, label: c || "None" }))}
+                />
+              </Field>
+            </div>
             <p className="text-[11.5px] text-faint">
-              {state.info.id === "opencode"
-                ? "OpenCode keeps its own keys. AltFlip stores only which sign-in to activate and switches through OpenCode's background service."
-                : `AltFlip reads the account email, plan and sign-in tokens for ${state.info.name}, and stores the tokens encrypted on this device only.`}
+              {`AltFlip reads the account email, plan and sign-in tokens for ${state.info.name}, and stores the tokens encrypted on this device only.`}
             </p>
           </>
         )}

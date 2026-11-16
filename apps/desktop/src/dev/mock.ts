@@ -120,29 +120,6 @@ const providers: ProviderState[] = [
     switchingEnabled: false,
     switchingDisabledReason: "Antigravity switching is experimental. Turn it on in Settings › Switching to use it.",
   },
-  {
-    info: {
-      id: "opencode",
-      name: "OpenCode",
-      installed: true,
-      version: "opencode v2.2.5",
-      binaryPath: "/Users/dev/.opencode/bin/opencode",
-      configPath: "/Users/dev/.local/share/opencode",
-      compatibility: "supported",
-      compatibilityNote: null,
-      experimental: false,
-      capabilities: caps(false, "no", true),
-      processes: [],
-      switchMode: "immediate",
-    },
-    accounts: [acct("o1", "opencode", "THK", "", ""), acct("o2", "opencode", "API key", "", "")],
-    activeAccountId: "o1",
-    activationState: "verified",
-    live: null,
-    liveError: null,
-    switchingEnabled: true,
-    switchingDisabledReason: null,
-  },
 ];
 
 function sync() {
@@ -221,8 +198,6 @@ export function installMocks() {
           return overview();
         case "get_settings":
           return settings;
-        case "import_accounts":
-          return [];
         case "claude_status_line":
           return statusLine;
         case "set_claude_status_line":

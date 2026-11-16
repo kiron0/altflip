@@ -31,7 +31,6 @@ pub fn sign_in_hint(provider: ProviderId) -> &'static str {
         ProviderId::Claude => "Run claude auth login in Terminal to sign in first.",
         ProviderId::Codex => "Run codex login in Terminal to sign in first.",
         ProviderId::Antigravity => "Open Antigravity and sign in first.",
-        ProviderId::OpenCode => "Run opencode auth login in Terminal to sign in first.",
     }
 }
 
@@ -226,7 +225,11 @@ impl Engine {
     }
 
     fn raw_capture(&self, p: &Arc<dyn Provider>) -> Result<Snapshot> {
-        p.raw_capture()
+        let mut resources = Vec::new();
+        for (loc, role) in p.locators() {
+            resources.push(p.ctx().io.capture(loc, role)?);
+        }
+        Ok(Snapshot::new(p.id(), Identity::default(), resources))
     }
 
     pub fn settings(&self) -> Result<Settings> {
@@ -497,28 +500,6 @@ impl Engine {
             &format!("{} {} ({})", if created { "Saved" } else { "Updated" }, row.label, live.identity.short()),
         )?;
         Ok(row)
-    }
-
-    pub fn import_accounts(&self, provider: ProviderId) -> Result<Vec<AccountRow>> {
-        let p = self.provider(provider)?;
-        let _guard = self.lock(provider)?;
-        let snaps = p.import()?;
-        let live_key = p.capture()?.map(|l| l.identity.key);
-        let mut out = Vec::new();
-        for snap in snaps {
-            let health = p.health(&snap);
-            let (row, created) = self.upsert(&snap, None, None, health)?;
-            let db = self.db();
-            if live_key.as_deref() == Some(snap.identity.key.as_str()) {
-                db.set_active(provider, &row.id, "verified", true)?;
-            }
-            if created {
-                db.log(Some(provider), Some(&row.id), "added", &format!("Imported {} from {provider}", row.label))?;
-            }
-            drop(db);
-            out.push(row);
-        }
-        Ok(out)
     }
 
     pub fn login_new(
@@ -1207,7 +1188,6 @@ impl Engine {
                         q.readings
                     })
                 }
-                ProviderId::OpenCode => continue,
             };
             match res {
                 Ok(mut r) => {

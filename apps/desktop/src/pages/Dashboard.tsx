@@ -137,7 +137,7 @@ function EmptyOverview() {
       </div>
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Add your first account</h1>
       <p className="mt-2 max-w-[440px] text-[13.5px] leading-relaxed text-muted">
-        Save each AI coding account once, then switch Claude Code, Codex, Antigravity and OpenCode between them in a click.
+        Save each AI coding account once, then switch Claude Code, Codex and Antigravity between them in a click.
         AltFlip uses each tool's own sign-in and never asks for your password.
       </p>
       <Button variant="primary" className="mt-6" onClick={() => openAdd("any")}>

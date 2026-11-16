@@ -171,26 +171,15 @@ function AntigravityLogo({ size = 16, className, monochrome }: LogoProps) {
   );
 }
 
-function OpenCodeLogo({ size = 16, className }: LogoProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>
-      <path fillRule="evenodd" clipRule="evenodd" d="M5 3h14v18H5V3Zm3 3v12h8V6H8Z" />
-      <path d="M10 9h4v6h-4z" opacity="0.55" />
-    </svg>
-  );
-}
-
 const COLORS: Record<ProviderId, string> = {
   "claude-code": "#c96442",
   codex: "#111111",
   antigravity: "#16171d",
-  opencode: "#2a2626",
 };
 
 export function ProviderLogo({ id, size = 16, className, monochrome }: { id: ProviderId; size?: number; className?: string; monochrome?: boolean }) {
   if (id === "claude-code") return <ClaudeLogo size={size} className={className} />;
   if (id === "codex") return <CodexLogo size={size} className={className} />;
-  if (id === "opencode") return <OpenCodeLogo size={size} className={className} />;
   return <AntigravityLogo size={size} className={className} monochrome={monochrome} />;
 }
 

@@ -307,7 +307,6 @@ pub fn run() {
             commands::undo_switch,
             commands::refresh_usage,
             commands::claude_status_line,
-            commands::import_accounts,
             commands::set_claude_status_line,
             commands::get_settings,
             commands::set_setting,

@@ -4,7 +4,6 @@ pub mod claude;
 pub mod claude_status;
 pub mod claude_usage;
 pub mod codex;
-pub mod opencode;
 pub mod pb;
 
 use altflip_core::process;
@@ -75,18 +74,6 @@ pub trait Provider: Send + Sync {
 
     fn normalize(&self, _snap: &mut Snapshot) {}
 
-    fn raw_capture(&self) -> Result<Snapshot> {
-        let mut resources = Vec::new();
-        for (loc, role) in self.locators() {
-            resources.push(self.ctx().io.capture(loc, role)?);
-        }
-        Ok(Snapshot::new(self.id(), Identity::default(), resources))
-    }
-
-    fn import(&self) -> Result<Vec<Snapshot>> {
-        Err(Error::Unsupported(format!("{} cannot import stored sign-ins", self.id())))
-    }
-
     fn apply(&self, snap: &Snapshot) -> Result<()> {
         if snap.provider != self.id() {
             return Err(Error::Invalid("Saved account belongs to a different provider".into()));
@@ -156,8 +143,7 @@ pub fn registry(ctx: Ctx) -> Vec<Arc<dyn Provider>> {
     vec![
         Arc::new(claude::Claude::new(ctx.clone())),
         Arc::new(codex::Codex::new(ctx.clone())),
-        Arc::new(antigravity::Antigravity::new(ctx.clone())),
-        Arc::new(opencode::OpenCode::new(ctx)),
+        Arc::new(antigravity::Antigravity::new(ctx)),
     ]
 }
 

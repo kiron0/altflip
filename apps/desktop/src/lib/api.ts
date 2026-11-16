@@ -7,7 +7,7 @@ export type StatusLineState = {
   lastReadingAt: string | null;
 };
 
-export type ProviderId = "claude-code" | "codex" | "antigravity" | "opencode";
+export type ProviderId = "claude-code" | "codex" | "antigravity";
 export type Compatibility = "supported" | "experimental" | "untested" | "unsupported" | "not-installed";
 export type SwitchMode = "immediate" | "new-sessions" | "restart-required" | "manual" | "unsupported";
 export type AuthHealth = "ok" | "expiring" | "expired" | "needs-reauth" | "unknown";
@@ -238,7 +238,6 @@ export const api = {
   planSwitch: (accountId: string) => invoke<SwitchPlan>("plan_switch", { accountId }),
   switchAccount: (accountId: string, confirmRestart = false) =>
     invoke<SwitchOutcome>("switch_account", { accountId, confirmRestart }),
-  importAccounts: (providerId: ProviderId) => invoke<Account[]>("import_accounts", { providerId }),
   saveCurrent: (providerId: ProviderId, label?: string, category?: string | null) =>
     invoke<Account>("save_current", { providerId, label: label || null, category: category || null }),
   startLogin: (providerId: ProviderId, label?: string, category?: string | null) =>

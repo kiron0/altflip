@@ -103,6 +103,15 @@ CREATE INDEX idx_usage_account ON usage_snapshots(account_id, observed_at DESC);
     r#"
 DELETE FROM usage_snapshots;
 "#,
+    r#"
+DELETE FROM recovery_snapshots WHERE provider_id = 'opencode';
+DELETE FROM switch_history WHERE provider_id = 'opencode';
+DELETE FROM active_accounts WHERE provider_id = 'opencode';
+DELETE FROM usage_snapshots WHERE provider_id = 'opencode';
+DELETE FROM accounts WHERE provider_id = 'opencode';
+DELETE FROM activity WHERE provider_id = 'opencode';
+DELETE FROM providers WHERE id = 'opencode';
+"#,
 ];
 
 fn db_err(e: rusqlite::Error) -> Error {
