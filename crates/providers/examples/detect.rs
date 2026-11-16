@@ -27,6 +27,49 @@ fn main() {
             info.switch_mode,
             info.processes.len()
         );
+        if info.id == altflip_core::ProviderId::Codex {
+            if let Ok(Some(snap)) = p.capture() {
+                match altflip_providers::codex::live_usage(&snap) {
+                    Ok(r) => r.iter().for_each(|u| {
+                        println!(
+                            "             LIVE {:<20} used={:>5.1}% reset={:?}",
+                            u.label,
+                            u.used_percent.unwrap_or(-1.0),
+                            u.reset_at
+                        )
+                    }),
+                    Err(e) => println!("             LIVE error: {e}"),
+                }
+            }
+        }
+        if info.id == altflip_core::ProviderId::Claude {
+            if let Ok(Some(snap)) = p.capture() {
+                for r in &snap.resources {
+                    println!(
+                        "             res {:?} role={:?} bytes={:?} json_ok={}",
+                        r.locator.describe().chars().take(40).collect::<String>(),
+                        r.role,
+                        r.data.as_ref().map(|d| d.len()),
+                        r.data.as_deref().and_then(|d| serde_json::from_slice::<serde_json::Value>(d).ok()).is_some()
+                    );
+                }
+                if altflip_providers::claude::needs_renewal(&snap) {
+                    println!("             LIVE skipped: Claude login needs renewal (the app renews it)");
+                } else {
+                    match altflip_providers::claude::exact_usage(&snap) {
+                        Ok(r) => r.iter().for_each(|u| {
+                            println!(
+                                "             LIVE {:<20} used={:>5.1}% reset={:?}",
+                                u.label,
+                                u.used_percent.unwrap_or(-1.0),
+                                u.reset_at
+                            )
+                        }),
+                        Err(e) => println!("             LIVE error: {e}"),
+                    }
+                }
+            }
+        }
         match p.capture() {
             Ok(Some(s)) => println!(
                 "             identity email={} plan={:?} method={:?} health={:?} resources={}",
@@ -39,13 +82,16 @@ fn main() {
             Ok(None) => println!("             not signed in"),
             Err(e) => println!("             error: {e}"),
         }
-        for u in p.usage().iter().take(8) {
+        for u in p.usage().iter().take(10) {
             println!(
                 "             usage {:<32} used={:>5.1}% reset={:?} for={}",
                 u.label,
                 u.used_percent.unwrap_or(-1.0),
                 u.reset_at,
-                u.account_key.as_deref().map(mask).unwrap_or_else(|| "active".into())
+                u.account_key
+                    .as_deref()
+                    .map(|k| k.chars().take(14).collect::<String>() + "…")
+                    .unwrap_or_else(|| "by time".into())
             );
         }
     }

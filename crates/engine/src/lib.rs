@@ -34,6 +34,7 @@ pub struct Engine {
     locks: HashMap<ProviderId, Mutex<()>>,
     logins: Mutex<HashMap<String, Arc<AtomicBool>>>,
     usage_errors: Mutex<HashMap<String, String>>,
+    last_live: Mutex<HashMap<String, std::time::Instant>>,
     data_dir: PathBuf,
 }
 
@@ -167,6 +168,7 @@ impl Engine {
             locks,
             logins: Mutex::new(HashMap::new()),
             usage_errors: Mutex::new(HashMap::new()),
+            last_live: Mutex::new(HashMap::new()),
             data_dir,
         }
     }
@@ -259,7 +261,7 @@ impl Engine {
         let saved = self.db().account_by_identity(p.id(), &live.identity.key)?;
         if let Some(acct) = &saved {
             let changed = self.load_snapshot(acct).map(|s| !s.same_primary_data(&live)).unwrap_or(true);
-            if changed {
+            if changed && health != AuthHealth::NeedsReauth {
                 self.seal_snapshot(&acct.profile_reference, &live)?;
             }
             self.db().refresh_identity(&acct.id, &live.identity, health)?;
@@ -396,6 +398,16 @@ impl Engine {
             })
     }
 
+    fn upsert_guard(snap: &Snapshot, health: AuthHealth) -> Result<()> {
+        if health == AuthHealth::NeedsReauth {
+            return Err(Error::Credential(format!(
+                "{}'s current sign-in is unreadable or incomplete. Sign in again with {} first.",
+                snap.provider, snap.provider
+            )));
+        }
+        Ok(())
+    }
+
     fn upsert(
         &self,
         snap: &Snapshot,
@@ -403,6 +415,7 @@ impl Engine {
         category: Option<String>,
         health: AuthHealth,
     ) -> Result<(AccountRow, bool)> {
+        Self::upsert_guard(snap, health)?;
         let provider = snap.provider;
         let label = label.filter(|l| !l.trim().is_empty());
         let existing = self.db().account_by_identity(provider, &snap.identity.key)?;
@@ -939,14 +952,18 @@ impl Engine {
     }
 
     pub fn refresh_usage(&self) -> Result<Vec<UsageRow>> {
+        self.refresh_usage_with(false)
+    }
+
+    pub fn refresh_usage_with(&self, force: bool) -> Result<Vec<UsageRow>> {
         if !self.settings()?.usage_monitoring {
             return self.db().latest_usage();
         }
-        let exact_claude = self.settings()?.claude_exact_usage;
+        let live_on = self.settings()?.live_usage;
         for p in &self.providers {
             let mut readings = p.usage();
-            if exact_claude && p.id() == ProviderId::Claude {
-                readings.extend(self.claude_exact_usage());
+            if live_on && matches!(p.id(), ProviderId::Claude | ProviderId::Codex) {
+                readings.extend(self.live_usage(p, force));
             }
             if readings.is_empty() {
                 continue;
@@ -954,13 +971,38 @@ impl Engine {
             let db = self.db();
             let active = db
                 .active_for(p.id())?
-                .filter(|a| matches!(a.activation_state.as_str(), "verified" | "new-sessions" | "external"));
-            let since = db.last_switch_at(p.id())?.unwrap_or_default();
+                .filter(|a| matches!(a.activation_state.as_str(), "verified" | "new-sessions" | "external"))
+                .map(|a| a.account_id);
+            let mut switches: Vec<SwitchRecord> = db
+                .switch_history(1000)?
+                .into_iter()
+                .filter(|s| s.provider == p.id() && matches!(s.status.as_str(), "succeeded" | "recovered"))
+                .collect();
+            switches.sort_by(|a, b| a.completed_at.cmp(&b.completed_at));
+            let accounts = db.accounts(Some(p.id()))?;
+            let account_at = |ts: &str| -> Option<String> {
+                match switches.iter().rev().find(|s| s.completed_at.as_deref().is_some_and(|c| c <= ts)) {
+                    Some(s) if s.status == "succeeded" => s.to_account_id.clone(),
+                    Some(_) => None,
+                    None => match switches.first() {
+                        Some(first) => first.from_account_id.clone(),
+                        None => active.clone(),
+                    },
+                }
+            };
             for r in &readings {
                 let target = match &r.account_key {
-                    Some(key) => db.account_by_identity(p.id(), key)?.map(|a| a.id),
-                    None if r.observed_at.as_str() >= since.as_str() => active.as_ref().map(|a| a.account_id.clone()),
-                    None => None,
+                    Some(key) if key.starts_with("claude-org:") => {
+                        let suffix = format!(":{}", &key["claude-org:".len()..]);
+                        let hits: Vec<_> =
+                            accounts.iter().filter(|a| a.account_identifier.ends_with(&suffix)).collect();
+                        match hits.as_slice() {
+                            [one] => Some(one.id.clone()),
+                            _ => None,
+                        }
+                    }
+                    Some(key) => accounts.iter().find(|a| &a.account_identifier == key).map(|a| a.id.clone()),
+                    None => account_at(&r.observed_at),
                 };
                 if let Some(id) = target {
                     db.add_usage(p.id(), &id, r)?;
@@ -1022,12 +1064,31 @@ impl Engine {
         Ok(renewed)
     }
 
-    fn claude_exact_usage(&self) -> Vec<altflip_core::UsageReading> {
-        let Ok(p) = self.provider(ProviderId::Claude) else { return Vec::new() };
-        let rows = self.db().accounts(Some(ProviderId::Claude)).unwrap_or_default();
+    fn live_usage(&self, p: &Arc<dyn Provider>, force: bool) -> Vec<altflip_core::UsageReading> {
+        let rows = self.db().accounts(Some(p.id())).unwrap_or_default();
+        let live = p.capture().ok().flatten();
         let mut out = Vec::new();
         for row in rows {
-            let res = self.claude_snapshot_for_usage(&p, &row).and_then(|s| altflip_providers::claude::exact_usage(&s));
+            {
+                let mut last = self.last_live.lock().unwrap_or_else(|e| e.into_inner());
+                if !force && last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+                    continue;
+                }
+                last.insert(row.id.clone(), std::time::Instant::now());
+            }
+            let res = match p.id() {
+                ProviderId::Claude => {
+                    self.claude_snapshot_for_usage(p, &row).and_then(|s| altflip_providers::claude::exact_usage(&s))
+                }
+                ProviderId::Codex => {
+                    let snap = match live.as_ref().filter(|l| l.identity.key == row.account_identifier) {
+                        Some(l) => Ok(l.clone()),
+                        None => self.load_snapshot(&row),
+                    };
+                    snap.and_then(|s| altflip_providers::codex::live_usage(&s))
+                }
+                ProviderId::Antigravity => continue,
+            };
             match res {
                 Ok(mut r) => {
                     for u in r.iter_mut() {

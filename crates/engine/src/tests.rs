@@ -11,6 +11,7 @@ struct Fake {
     fail_verify: AtomicBool,
     experimental: bool,
     readings: Mutex<Vec<altflip_core::UsageReading>>,
+    broken: AtomicBool,
 }
 
 impl Provider for Fake {
@@ -58,7 +59,11 @@ impl Provider for Fake {
         Ok(Some(Identity { key: format!("u:{user}"), email: Some(format!("{user}@x.dev")), ..Default::default() }))
     }
     fn health(&self, _snap: &Snapshot) -> AuthHealth {
-        AuthHealth::Ok
+        if self.broken.load(Ordering::SeqCst) {
+            AuthHealth::NeedsReauth
+        } else {
+            AuthHealth::Ok
+        }
     }
     fn processes(&self) -> Vec<ProcessInfo> {
         vec![]
@@ -97,6 +102,7 @@ fn harness(experimental: bool) -> Harness {
         fail_verify: AtomicBool::new(false),
         experimental,
         readings: Mutex::new(vec![]),
+        broken: AtomicBool::new(false),
     });
     let engine = build(&root, secrets.clone(), fake.clone());
     Harness { _dir: dir, engine, fake, secrets, root }
@@ -284,7 +290,7 @@ fn reading(kind: &str, at: &str, key: Option<&str>) -> altflip_core::UsageReadin
 }
 
 #[test]
-fn usage_is_attributed_by_identity_or_to_active_since_last_switch() {
+fn usage_is_attributed_by_identity_or_to_account_active_at_that_time() {
     let h = harness(false);
     sign_in(&h, "a", "t1");
     let a = h.engine.save_current(ProviderId::Codex, None, None).unwrap();
@@ -296,7 +302,23 @@ fn usage_is_attributed_by_identity_or_to_active_since_last_switch() {
     assert!(rows.iter().any(|r| r.account_id == b.id && r.reading.usage_type == "old"));
     assert!(rows.iter().any(|r| r.account_id == a.id && r.reading.usage_type == "keyed"));
     h.engine.switch(&a.id, SwitchOptions::default(), &quiet).unwrap();
-    *h.fake.readings.lock().unwrap() = vec![reading("stale", "2020-01-02T00:00:00Z", None)];
+    *h.fake.readings.lock().unwrap() =
+        vec![reading("before", "2020-01-02T00:00:00Z", None), reading("after", "2999-01-01T00:00:00Z", None)];
     let rows = h.engine.refresh_usage().unwrap();
-    assert!(!rows.iter().any(|r| r.reading.usage_type == "stale"));
+    assert!(rows.iter().any(|r| r.account_id == b.id && r.reading.usage_type == "before"));
+    assert!(rows.iter().any(|r| r.account_id == a.id && r.reading.usage_type == "after"));
+}
+
+#[test]
+fn unreadable_live_login_never_overwrites_saved_copy() {
+    let h = harness(false);
+    sign_in(&h, "a", "t1");
+    let a = h.engine.save_current(ProviderId::Codex, None, None).unwrap();
+    let before = h.engine.load_snapshot(&h.engine.db().account(&a.id).unwrap()).unwrap();
+    h.fake.broken.store(true, Ordering::SeqCst);
+    sign_in(&h, "a", "corrupted");
+    h.engine.overview(true).unwrap();
+    let after = h.engine.load_snapshot(&h.engine.db().account(&a.id).unwrap()).unwrap();
+    assert!(after.same_primary_data(&before));
+    assert!(h.engine.save_current(ProviderId::Codex, None, None).is_err());
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Info, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { api, errorText, type ProviderState, type UsageRow } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn, countdown, relativeTime } from "@/lib/utils";
@@ -13,7 +13,9 @@ const STALE_MS = 6 * 3600 * 1000;
 function emptyText(p: ProviderState) {
   switch (p.info.id) {
     case "codex":
-      return "No reading yet. Codex records usage in its session logs while this account is active.";
+      return "No reading yet. Press Refresh.";
+    case "claude-code":
+      return "No reading yet. Press Refresh.";
     case "antigravity":
       return "No reading yet. Antigravity saves quota for the account signed in to the IDE when it starts.";
     default:
@@ -30,9 +32,14 @@ function Reading({ u, showCountdown }: { u: UsageRow; showCountdown: boolean }) 
     <div className={cn(resetPassed && "opacity-60")}>
       <div className="mb-1.5 flex items-baseline gap-2 text-[12.5px]">
         <span className="min-w-0 flex-1 truncate">{u.label}</span>
-        <span className="font-display text-[15px] font-semibold tabular-nums">
-          {u.usedPercent != null ? `${Math.round(u.usedPercent)}%` : "—"}
-        </span>
+        {u.usedPercent != null ? (
+          <span className="tabular-nums">
+            <span className="font-display text-[15px] font-semibold">{Math.round(u.usedPercent)}%</span>
+            <span className="text-faint"> used · {Math.max(0, 100 - Math.round(u.usedPercent))}% left</span>
+          </span>
+        ) : (
+          <span className="text-faint">—</span>
+        )}
       </div>
       {u.usedPercent != null && <Meter value={u.usedPercent} />}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-faint">
@@ -44,46 +51,9 @@ function Reading({ u, showCountdown }: { u: UsageRow; showCountdown: boolean }) 
         <span>
           {u.source} · {relativeTime(u.observedAt)}
         </span>
+        {u.confidence === "estimated" && <Badge tone="neutral">Estimated reset</Badge>}
         {stale && <Badge tone="warn">Stale</Badge>}
       </div>
-    </div>
-  );
-}
-
-function ClaudeOptIn() {
-  const setSetting = useApp((s) => s.setSetting);
-  const load = useApp((s) => s.load);
-  const toast = useApp((s) => s.toast);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="flex items-start gap-3 px-5 py-4">
-      <Info className="mt-0.5 size-4 shrink-0 text-accent" />
-      <div className="min-w-0 flex-1 text-[13px]">
-        <div className="font-medium">Show Claude usage from Anthropic</div>
-        <p className="mt-0.5 text-muted">
-          Claude Code doesn't save its plan usage on this computer. With your permission, AltFlip sends each saved Claude login to
-          api.anthropic.com to read the same 5-hour and weekly limits as /usage. Expired logins are renewed the way Claude Code
-          renews them, and the active one is saved back for Claude Code. Logins are sent only to Anthropic.
-        </p>
-      </div>
-      <Button
-        size="sm"
-        variant="primary"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          await setSetting("claudeExactUsage", true);
-          try {
-            await api.refreshUsage();
-            await load(false);
-          } catch (e) {
-            toast({ kind: "error", text: "Could not read Claude usage", detail: errorText(e) });
-          }
-          setBusy(false);
-        }}
-      >
-        Turn on
-      </Button>
     </div>
   );
 }
@@ -129,22 +99,24 @@ export function UsagePage() {
           </Button>
         }
       />
+      {settings?.usageMonitoring && !settings.liveUsage && (
+        <div className="rounded-[20px] bg-surface-2 px-5 py-4 text-[13px] text-muted">
+          Live usage is off, so Claude and Codex show local estimates that can be hours old. Turn on Live usage in Settings for exact numbers.
+        </div>
+      )}
       {!settings?.usageMonitoring && (
         <div className="rounded-[20px] bg-surface-2 px-5 py-4 text-[13px] text-muted">Usage monitoring is turned off in Settings.</div>
       )}
       {providers.map((p) => {
-        const claudeOff = p.info.id === "claude-code" && !settings?.claudeExactUsage;
         return (
           <Card key={p.info.id} className="overflow-hidden">
             <div className="flex items-center gap-2.5 border-b border-border px-5 py-3.5">
               <ProviderIcon id={p.info.id} size={20} />
               <span className="font-display text-[15px] font-semibold">{p.info.name}</span>
             </div>
-            {claudeOff && <ClaudeOptIn />}
             <div className="divide-y divide-border">
-              {!claudeOff && p.accounts.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">No saved accounts.</p>}
-              {!claudeOff &&
-                p.accounts.map((a) => (
+              {p.accounts.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">No saved accounts.</p>}
+              {p.accounts.map((a) => (
                   <div key={a.id} className="grid grid-cols-[190px_1fr] gap-5 px-5 py-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -155,7 +127,7 @@ export function UsagePage() {
                     </div>
                     {a.usage.length === 0 ? (
                       <p className="text-[13px] text-muted">
-                        {a.usageError ?? (p.info.id === "claude-code" ? "No reading yet. Press Refresh." : emptyText(p))}
+                        {a.usageError ?? emptyText(p)}
                       </p>
                     ) : (
                       <div className="grid grid-cols-2 gap-x-6 gap-y-4">

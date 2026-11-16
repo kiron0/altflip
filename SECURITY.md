@@ -10,11 +10,12 @@ Please open a private security advisory on GitHub instead of a public issue. Inc
 - Saved sign-ins are encrypted with AES-256-GCM. The key is generated on first launch and kept in the system credential store (macOS Keychain, Windows Credential Manager, Secret Service), not next to the encrypted files.
 - Each encrypted file is bound to its name, so files cannot be swapped between accounts.
 - Credentials are never written to SQLite, logs, the activity history, notifications or the UI.
-- On macOS, Keychain items owned by other tools are written through `/usr/bin/security` with the secret passed on standard input, keeping those tools' access settings intact.
+- On macOS, Keychain items owned by other tools are written through `/usr/bin/security`, keeping those tools' access settings intact. Values up to about 1.8 KB go through standard input; longer ones (which `security -i` would truncate) are passed as a hex argument for the moment the command runs. Every write is read back, and if it doesn't match, the previous value is put back.
+- AltFlip never saves a sign-in it can't read: an unreadable or incomplete login is not copied over a saved account.
 - Files are replaced atomically and read back; symlinked targets are refused.
 - Backups are encrypted with a passphrase (PBKDF2-HMAC-SHA256, 600,000 rounds, AES-256-GCM). Anyone with the file and passphrase can use the accounts in it.
 - If the credential store is unavailable, switching is turned off.
 
 ## Network
 
-AltFlip makes no network requests of its own unless you turn on *Claude usage from Anthropic*, which sends saved Claude logins only to `api.anthropic.com` to read usage. `claude auth login`, `claude auth status` and `codex login` contact their providers when you use them.
+With *Live usage* on (the default), AltFlip asks each provider for the limits of each saved account at most once a minute: Claude logins go only to `api.anthropic.com` (and `console.anthropic.com` to renew an expired login), Codex logins only to `chatgpt.com`. Turn it off in Settings › Usage monitoring to make no network requests. `claude auth login`, `claude auth status` and `codex login` contact their providers when you use them.

@@ -10,7 +10,8 @@
 - Identity: `accountUuid` + `organizationUuid`, so a personal account and a team seat for the same person are separate accounts.
 - Verification: stored data is read back, then `claude auth status --json` must report the expected email.
 - Add accounts: `claude auth login` with a temporary `CLAUDE_CONFIG_DIR`; the temporary Keychain item and folder are removed afterwards.
-- Usage (opt-in, off by default): with *Claude usage from Anthropic* turned on, AltFlip sends each saved Claude login to `api.anthropic.com` (`/api/oauth/profile` to confirm the account, `/api/oauth/usage` for the 5-hour and weekly limits), the same method AccountDeck uses. Expired logins are renewed with Claude Code's own refresh flow; for the active account the renewed login is written back to the `Claude Code-credentials` item (only if Claude Code hasn't changed it meanwhile), for other accounts only AltFlip's encrypted copy is updated.
+- Usage (local, always on): Claude Desktop's `plan-usage-history.json` (5-hour and weekly percentages per organization; reset times estimated the way AccountDeck does), matched to saved accounts by organization, and Claude Code status-line files in `~/.claude/.accountdeck-status/` or `~/.claude/.altflip-status/`, attributed to the account that was active when they were written.
+- Live usage (on by default): AltFlip sends each saved Claude login to `api.anthropic.com` (`/api/oauth/profile` to confirm the account, `/api/oauth/usage` for the 5-hour and weekly limits), the same method AccountDeck uses. Expired logins are renewed with Claude Code's own refresh flow; for the active account the renewed login is written back to the `Claude Code-credentials` item (only if Claude Code hasn't changed it meanwhile), for other accounts only AltFlip's encrypted copy is updated.
 - Mode: new sessions. Running sessions keep their account in memory and may write their own tokens back when they refresh; AltFlip then shows the sign-in as changed.
 - AltFlip manages the default profile only. If `CLAUDE_CONFIG_DIR` is set for AltFlip itself, Claude Code is marked untested.
 
@@ -20,7 +21,8 @@
 - Sign-in state: `auth.json`. ChatGPT and API-key sign-ins are supported.
 - Identity: ChatGPT user and workspace (`chatgpt_account_id`) from the ID token, or a hash of the API key.
 - Add accounts: `codex login` with a temporary `CODEX_HOME` set to file storage.
-- Usage: the newest `sessions/**/rollout-*.jsonl` `rate_limits` event (5-hour and weekly windows). It is attributed to the selected account if it was recorded after the last switch.
+- Live usage (on by default): `GET https://chatgpt.com/backend-api/wham/usage` with the account's ChatGPT login and `ChatGPT-Account-Id`, the same source as Codex's usage panel. Saved accounts whose login has expired show the error until they are used once.
+- Local usage (fallback): the newest `rate_limits` event in each recent `sessions/**/rollout-*.jsonl` (last 600 KB read). Each session's `session_meta` names its `creator_user_id` and `creator_account_id`, so every saved Codex account gets its own reading. Windows whose reset time has passed show 0%.
 - Not supported: `cli_auth_credentials_store = "keyring"` (and `auto` without an `auth.json`). Switching is turned off with an explanation.
 
 ## Antigravity (experimental)

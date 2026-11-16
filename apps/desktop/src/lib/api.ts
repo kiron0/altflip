@@ -194,7 +194,7 @@ export interface Settings {
   showResetCountdowns: boolean;
   warnRunningSessions: boolean;
   experimentalAntigravity: boolean;
-  claudeExactUsage: boolean;
+  liveUsage: boolean;
   diagnosticLevel: string;
 }
 

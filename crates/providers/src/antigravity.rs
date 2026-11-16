@@ -539,15 +539,18 @@ impl Provider for Antigravity {
                 .ok()
                 .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
                 .unwrap_or_else(altflip_core::now_rfc3339);
+            let now = chrono::Utc::now().timestamp();
             for m in &st.models {
+                let reset_passed = m.reset_secs.is_some_and(|r| r < now);
+                let used = if reset_passed { 0.0 } else { ((1.0 - f64::from(m.remaining)) * 100.0).clamp(0.0, 100.0) };
                 out.push(UsageReading {
                     usage_type: format!("model:{}", m.name),
                     label: m.name.clone(),
-                    used_percent: Some(((1.0 - f64::from(m.remaining)) * 100.0).clamp(0.0, 100.0)),
+                    used_percent: Some(used),
                     used_value: None,
                     limit_value: None,
                     window_minutes: None,
-                    reset_at: m.reset_secs.and_then(epoch_to_rfc3339),
+                    reset_at: m.reset_secs.filter(|_| !reset_passed).and_then(epoch_to_rfc3339),
                     source: "Antigravity (local)".into(),
                     confidence: "provider-reported".into(),
                     observed_at: observed.clone(),

@@ -198,7 +198,7 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
       </Section>
 
       <Section title="Usage monitoring">
-        <Toggle k="usageMonitoring" label="Monitor usage" hint="Reads usage that Codex and Antigravity record on this computer." />
+        <Toggle k="usageMonitoring" label="Monitor usage" hint="Shows 5-hour, weekly and per-model limits for every saved account." />
         <Row label="Check every">
           <Select
             label="Refresh interval"
@@ -216,9 +216,9 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
           />
         </Row>
         <Toggle
-          k="claudeExactUsage"
-          label="Claude usage from Anthropic"
-          hint="Sends each saved Claude login to api.anthropic.com to read 5-hour and weekly limits, renewing expired logins like Claude Code does. Off by default."
+          k="liveUsage"
+          label="Live usage from Anthropic and OpenAI"
+          hint="Asks each provider for the same limits Claude Code's /usage and Codex's usage panel show, at most once a minute per account. Logins are sent only to their own provider; expired Claude logins are renewed like Claude Code does."
         />
         <Toggle k="showResetCountdowns" label="Show reset countdowns" />
       </Section>

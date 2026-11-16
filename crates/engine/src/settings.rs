@@ -24,7 +24,7 @@ pub struct Settings {
     pub show_reset_countdowns: bool,
     pub warn_running_sessions: bool,
     pub experimental_antigravity: bool,
-    pub claude_exact_usage: bool,
+    pub live_usage: bool,
     pub diagnostic_level: String,
 }
 
@@ -48,7 +48,7 @@ pub fn default_settings() -> Value {
         "showResetCountdowns": true,
         "warnRunningSessions": true,
         "experimentalAntigravity": false,
-        "claudeExactUsage": false,
+        "liveUsage": true,
         "diagnosticLevel": "info"
     })
 }

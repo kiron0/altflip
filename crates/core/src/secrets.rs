@@ -73,36 +73,67 @@ mod imp {
         if v.last() == Some(&b'\n') {
             v.pop();
         }
+        if v.len() % 2 == 0 && !v.is_empty() && v.iter().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c)) {
+            if let Ok(raw) = hex::decode(&v) {
+                if raw.iter().any(|c| *c < 0x20 && !matches!(c, b'\n' | b'\r' | b'\t')) {
+                    return Ok(Some(raw));
+                }
+            }
+        }
         Ok(Some(v))
     }
 
-    pub fn set(service: &str, account: &str, value: &[u8]) -> Result<()> {
-        let line = format!(
-            "add-generic-password -U -s {} -a {} -X {}\n",
-            quote(service)?,
-            quote(account)?,
-            hex::encode(value)
-        );
-        let mut child = Command::new(SECURITY)
-            .arg("-i")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| Error::Credential(format!("Cannot run the macOS security tool: {e}")))?;
-        {
-            let mut stdin = child.stdin.take().ok_or_else(|| Error::Credential("security stdin unavailable".into()))?;
-            stdin.write_all(line.as_bytes()).map_err(|e| Error::Credential(format!("Keychain write failed: {e}")))?;
-        }
-        let out = child.wait_with_output().map_err(|e| Error::Credential(format!("Keychain write failed: {e}")))?;
+    const STDIN_LINE_LIMIT: usize = 3800;
+
+    fn write_raw(service: &str, account: &str, value: &[u8]) -> Result<()> {
+        let hexed = hex::encode(value);
+        let line = format!("add-generic-password -U -s {} -a {} -X {}\n", quote(service)?, quote(account)?, hexed);
+        let out = if line.len() < STDIN_LINE_LIMIT {
+            let mut child = Command::new(SECURITY)
+                .arg("-i")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| Error::Credential(format!("Cannot run the macOS security tool: {e}")))?;
+            {
+                let mut stdin =
+                    child.stdin.take().ok_or_else(|| Error::Credential("security stdin unavailable".into()))?;
+                stdin
+                    .write_all(line.as_bytes())
+                    .map_err(|e| Error::Credential(format!("Keychain write failed: {e}")))?;
+            }
+            child.wait_with_output().map_err(|e| Error::Credential(format!("Keychain write failed: {e}")))?
+        } else {
+            Command::new(SECURITY)
+                .args(["add-generic-password", "-U", "-s", service, "-a", account, "-X", &hexed])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .output()
+                .map_err(|e| Error::Credential(format!("Cannot run the macOS security tool: {e}")))?
+        };
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         if !out.status.success() || !stderr.is_empty() {
             return Err(Error::Credential(format!("Keychain write failed for {service}: {stderr}")));
         }
-        match get(service, account)? {
-            Some(v) if v == value => Ok(()),
-            _ => Err(Error::Verification(format!("Keychain item {service} did not read back as written"))),
+        Ok(())
+    }
+
+    pub fn set(service: &str, account: &str, value: &[u8]) -> Result<()> {
+        let previous = get(service, account)?;
+        let written = write_raw(service, account, value);
+        let ok = written.is_ok() && matches!(get(service, account), Ok(Some(ref v)) if v == value);
+        if ok {
+            return Ok(());
         }
+        if let Some(prev) = previous {
+            let _ = write_raw(service, account, &prev);
+        }
+        written?;
+        Err(Error::Verification(format!(
+            "Keychain item {service} did not read back as written; the previous value was restored"
+        )))
     }
 
     pub fn delete(service: &str, account: &str) -> Result<()> {
@@ -169,7 +200,7 @@ mod imp {
 
     pub fn status() -> SecretStoreStatus {
         let backend = if cfg!(windows) { "Windows Credential Manager" } else { "Secret Service" };
-        match entry("dev.altflip.probe", "status").and_then(|e| match e.get_secret() {
+        match entry("io.coreify.altflip.probe", "status").and_then(|e| match e.get_secret() {
             Ok(_) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(Error::Credential(err.to_string())),
         }) {

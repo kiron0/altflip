@@ -46,8 +46,12 @@ pub fn refresh_soon(app: &AppHandle) {
 }
 
 pub fn refresh_usage(app: &AppHandle) -> Result<Vec<UsageRow>> {
+    refresh_usage_with(app, false)
+}
+
+pub fn refresh_usage_with(app: &AppHandle, force: bool) -> Result<Vec<UsageRow>> {
     let state = app.state::<AppState>();
-    let rows = state.engine.refresh_usage()?;
+    let rows = state.engine.refresh_usage_with(force)?;
     let _ = app.emit("altflip://usage", &rows);
     let settings = state.engine.settings()?;
     if settings.notifications && settings.notify_usage {
@@ -93,9 +97,15 @@ pub fn start(app: AppHandle) {
                 refresh_status(&app);
             }
             let Ok(settings) = state.engine.settings() else { continue };
-            if settings.usage_monitoring
-                && last_usage.elapsed() > Duration::from_secs(settings.usage_refresh_minutes * 60)
-            {
+            let visible = ["main", "quick"]
+                .iter()
+                .any(|l| app.get_webview_window(l).and_then(|w| w.is_visible().ok()).unwrap_or(false));
+            let every = if visible {
+                Duration::from_secs(60)
+            } else {
+                Duration::from_secs(settings.usage_refresh_minutes * 60)
+            };
+            if settings.usage_monitoring && last_usage.elapsed() > every {
                 last_usage = Instant::now();
                 let _ = refresh_usage(&app);
             }

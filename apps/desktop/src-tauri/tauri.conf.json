@@ -3,7 +3,7 @@
   "productName": "AltFlip",
   "mainBinaryName": "AltFlip",
   "version": "0.1.0",
-  "identifier": "dev.altflip.app",
+  "identifier": "io.coreify.altflip",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1430",

@@ -209,7 +209,7 @@ pub async fn undo_switch(state: State<'_, AppState>, app: AppHandle, operation_i
 
 #[tauri::command]
 pub async fn refresh_usage(app: AppHandle) -> Result<Vec<UsageRow>> {
-    blocking(move || background::refresh_usage(&app)).await
+    blocking(move || background::refresh_usage_with(&app, true)).await
 }
 
 #[tauri::command]

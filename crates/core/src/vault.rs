@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use zeroize::Zeroizing;
 
-pub const VAULT_SERVICE: &str = "dev.altflip.vault";
+pub const VAULT_SERVICE: &str = "io.coreify.altflip.vault";
+pub const LEGACY_VAULT_SERVICE: &str = "dev.altflip.vault";
 pub const VAULT_ACCOUNT: &str = "master-key";
 const MAGIC: &[u8; 4] = b"AFV1";
 const PASS_MAGIC: &[u8; 4] = b"AFP1";
@@ -56,6 +57,12 @@ impl Vault {
     pub fn open(dir: &Path, secrets: Arc<dyn SecretStore>) -> Result<Self> {
         std::fs::create_dir_all(dir).map_err(|e| Error::io(format!("Cannot create {}", dir.display()), e))?;
         fsutil::restrict_dir(dir);
+        if secrets.get(VAULT_SERVICE, VAULT_ACCOUNT)?.is_none() {
+            if let Some(old) = secrets.get(LEGACY_VAULT_SERVICE, VAULT_ACCOUNT)? {
+                secrets.set(VAULT_SERVICE, VAULT_ACCOUNT, &old)?;
+                let _ = secrets.delete(LEGACY_VAULT_SERVICE, VAULT_ACCOUNT);
+            }
+        }
         let key = match secrets.get(VAULT_SERVICE, VAULT_ACCOUNT)? {
             Some(hexed) => {
                 let raw = Zeroizing::new(
@@ -183,6 +190,19 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         Vault::open(dir.path(), Arc::new(MemorySecrets::default())).unwrap().seal("a", b"x").unwrap();
         assert!(Vault::open(dir.path(), Arc::new(MemorySecrets::default())).is_err());
+    }
+
+    #[test]
+    fn migrates_legacy_key_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets: Arc<dyn SecretStore> = Arc::new(MemorySecrets::default());
+        let key = [7u8; 32];
+        Vault::with_key(dir.path(), key).seal("a", b"x").unwrap();
+        secrets.set(LEGACY_VAULT_SERVICE, VAULT_ACCOUNT, hex::encode(key).as_bytes()).unwrap();
+        let v = Vault::open(dir.path(), secrets.clone()).unwrap();
+        assert_eq!(v.open_ref("a").unwrap().as_slice(), b"x");
+        assert!(secrets.get(LEGACY_VAULT_SERVICE, VAULT_ACCOUNT).unwrap().is_none());
+        assert!(secrets.get(VAULT_SERVICE, VAULT_ACCOUNT).unwrap().is_some());
     }
 
     #[test]

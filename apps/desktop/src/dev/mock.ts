@@ -167,7 +167,7 @@ let settings: Settings = {
   showResetCountdowns: true,
   warnRunningSessions: true,
   experimentalAntigravity: false,
-  claudeExactUsage: false,
+  liveUsage: true,
   diagnosticLevel: "info",
 };
 
@@ -202,7 +202,7 @@ export function installMocks() {
           }
           return settings;
         case "app_info":
-          return { version: "0.1.0", os: "macos", dataDir: "/Users/dev/Library/Application Support/dev.altflip.app" };
+          return { version: "0.1.0", os: "macos", dataDir: "/Users/dev/Library/Application Support/io.coreify.altflip" };
         case "get_history":
           return history;
         case "get_activity":

@@ -138,7 +138,22 @@ fn data_dir(app: &tauri::App) -> std::result::Result<std::path::PathBuf, Box<dyn
             return Ok(d.into());
         }
     }
-    Ok(app.path().app_data_dir()?)
+    let dir = app.path().app_data_dir()?;
+    migrate_legacy_dir(&dir);
+    Ok(dir)
+}
+
+fn migrate_legacy_dir(dir: &std::path::Path) {
+    if dir.exists() {
+        return;
+    }
+    let Some(parent) = dir.parent() else { return };
+    let legacy = parent.join("dev.altflip.app");
+    if legacy.join("database").join("manager.db").is_file() {
+        if let Err(e) = std::fs::rename(&legacy, dir) {
+            eprintln!("altflip: could not move {} to {}: {e}", legacy.display(), dir.display());
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

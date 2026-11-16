@@ -349,6 +349,83 @@ impl Provider for Codex {
     }
 }
 
+pub(crate) fn parse_live_usage(v: &serde_json::Value, observed_at: &str, now: i64) -> Vec<UsageReading> {
+    let mut out = Vec::new();
+    let Some(rl) = v.get("rate_limit").filter(|r| !r.is_null()) else { return out };
+    for (slot, key) in [("primary", "primary_window"), ("secondary", "secondary_window")] {
+        let Some(w) = rl.get(key).filter(|w| !w.is_null()) else { continue };
+        let Some(pct) = w.get("used_percent").and_then(|u| u.as_f64()) else { continue };
+        let mins = w.get("limit_window_seconds").and_then(|s| s.as_i64()).map(|s| s / 60);
+        let reset = w
+            .get("reset_at")
+            .and_then(|r| r.as_i64())
+            .or_else(|| w.get("reset_after_seconds").and_then(|s| s.as_i64()).map(|s| now + s));
+        out.push(UsageReading {
+            usage_type: slot.into(),
+            label: mins.map(window_label).unwrap_or_else(|| "Usage".into()),
+            used_percent: Some(pct.clamp(0.0, 100.0)),
+            used_value: None,
+            limit_value: None,
+            window_minutes: mins,
+            reset_at: reset
+                .and_then(|r| chrono::DateTime::from_timestamp(r, 0))
+                .map(|d| d.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            source: "OpenAI".into(),
+            confidence: "provider-reported".into(),
+            observed_at: observed_at.to_string(),
+            account_key: None,
+        });
+    }
+    out
+}
+
+pub fn live_usage(snap: &Snapshot) -> Result<Vec<UsageReading>> {
+    let auth = snap
+        .resources
+        .iter()
+        .find(|r| r.role == Role::Primary)
+        .and_then(|r| json(r.data.as_deref()))
+        .ok_or_else(|| Error::Credential("No saved Codex login".into()))?;
+    let tokens = auth
+        .get("tokens")
+        .filter(|t| !t.is_null())
+        .ok_or_else(|| Error::Unsupported("API-key logins have no ChatGPT plan limits".into()))?;
+    let token = tokens
+        .get("access_token")
+        .and_then(|t| t.as_str())
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| Error::Credential("No saved Codex login".into()))?;
+    let account = tokens.get("account_id").and_then(|t| t.as_str()).unwrap_or_default();
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).http_status_as_error(false).build(),
+    );
+    let mut req = agent
+        .get("https://chatgpt.com/backend-api/wham/usage")
+        .header("Authorization", &format!("Bearer {token}"))
+        .header("Accept", "application/json")
+        .header("User-Agent", "codex-cli");
+    if !account.is_empty() {
+        req = req.header("ChatGPT-Account-Id", account);
+    }
+    let mut resp = req.call().map_err(|e| Error::Platform(format!("No connection to OpenAI: {e}")))?;
+    let status = resp.status().as_u16();
+    if status == 401 || status == 403 {
+        return Err(Error::Credential(
+            "The saved Codex login has expired. Switch to this account and use Codex once to renew it.".into(),
+        ));
+    }
+    if status != 200 {
+        return Err(Error::Platform(format!("OpenAI answered {status}")));
+    }
+    let v: serde_json::Value =
+        resp.body_mut().read_json().map_err(|e| Error::Platform(format!("Unexpected answer from OpenAI: {e}")))?;
+    let out = parse_live_usage(&v, &altflip_core::now_rfc3339(), chrono::Utc::now().timestamp());
+    if out.is_empty() {
+        return Err(Error::Platform("OpenAI returned no usage windows".into()));
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -407,6 +484,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(Codex::new(ctx).store(), Store::Keyring);
+    }
+
+    #[test]
+    fn parses_live_usage_windows() {
+        let v = serde_json::json!({"plan_type": "plus", "rate_limit": {"allowed": true, "primary_window": {"used_percent": 3, "limit_window_seconds": 18000, "reset_after_seconds": 100, "reset_at": 1794843293}, "secondary_window": {"used_percent": 25, "limit_window_seconds": 604800, "reset_after_seconds": 50}}});
+        let u = parse_live_usage(&v, "2026-11-16T00:00:00Z", 1000);
+        assert_eq!(u.len(), 2);
+        assert_eq!(u[0].used_percent, Some(3.0));
+        assert_eq!(u[0].label, "5-hour usage");
+        assert_eq!(u[1].label, "Weekly usage");
+        assert_eq!(u[1].reset_at.as_deref(), Some("1970-01-01T00:17:30Z"));
+        assert_eq!(u[1].source, "OpenAI");
     }
 
     #[test]

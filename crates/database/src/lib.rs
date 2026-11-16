@@ -3,7 +3,8 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -98,7 +99,11 @@ CREATE INDEX idx_accounts_provider ON accounts(provider_id, sort_order);
 CREATE INDEX idx_history_started ON switch_history(started_at DESC);
 CREATE INDEX idx_activity_at ON activity(at DESC);
 CREATE INDEX idx_usage_account ON usage_snapshots(account_id, observed_at DESC);
-"#];
+"#,
+    r#"
+DELETE FROM usage_snapshots;
+"#,
+];
 
 fn db_err(e: rusqlite::Error) -> Error {
     Error::Database(e.to_string())
