@@ -309,7 +309,35 @@ impl Provider for Claude {
     }
 }
 
+static BACKOFF: std::sync::Mutex<Option<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>>> =
+    std::sync::Mutex::new(None);
+static VERIFIED: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+fn token_key(token: &str) -> String {
+    altflip_core::short_hash(token.as_bytes())
+}
+
+fn backoff_until(token: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let map = BACKOFF.lock().ok()?;
+    map.as_ref()?.get(&token_key(token)).copied().filter(|t| *t > chrono::Utc::now())
+}
+
+fn set_backoff(token: &str, secs: i64) {
+    if let Ok(mut map) = BACKOFF.lock() {
+        map.get_or_insert_with(Default::default)
+            .insert(token_key(token), chrono::Utc::now() + chrono::Duration::seconds(secs.clamp(60, 3600)));
+    }
+}
+
+fn rate_limited_text(until: chrono::DateTime<chrono::Utc>) -> String {
+    let local = until.with_timezone(&chrono::Local).format("%H:%M");
+    format!("Anthropic is limiting usage checks right now. AltFlip shows the last reading and tries again at {local}.")
+}
+
 fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
+    if let Some(until) = backoff_until(token) {
+        return Err(Error::Platform(rate_limited_text(until)));
+    }
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).http_status_as_error(false).build(),
     );
@@ -322,6 +350,16 @@ fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
         .call()
         .map_err(|e| Error::Platform(format!("No connection to Anthropic: {e}")))?;
     let status = resp.status().as_u16();
+    if status == 429 {
+        let secs = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<i64>().ok())
+            .unwrap_or(300);
+        set_backoff(token, secs);
+        return Err(Error::Platform(rate_limited_text(backoff_until(token).unwrap_or_else(chrono::Utc::now))));
+    }
     if status == 401 || status == 403 {
         return Err(Error::Credential(
             "The saved Claude login has expired. Use this account in Claude Code to renew it.".into(),
@@ -454,10 +492,16 @@ pub fn exact_usage(snap: &Snapshot) -> Result<Vec<UsageReading>> {
     {
         return Err(Error::Credential("The saved Claude login has expired".into()));
     }
-    let profile = anthropic_get("/api/oauth/profile", token)?;
-    let uuid = profile.pointer("/account/uuid").and_then(|u| u.as_str()).unwrap_or_default();
-    if uuid.is_empty() || !snap.identity.key.starts_with(&format!("claude:{uuid}:")) {
-        return Err(Error::Verification("The saved login belongs to a different Claude account".into()));
+    let known = VERIFIED.lock().ok().and_then(|m| m.as_ref().and_then(|m| m.get(&token_key(token)).cloned()));
+    if known.as_deref() != Some(snap.identity.key.as_str()) {
+        let profile = anthropic_get("/api/oauth/profile", token)?;
+        let uuid = profile.pointer("/account/uuid").and_then(|u| u.as_str()).unwrap_or_default();
+        if uuid.is_empty() || !snap.identity.key.starts_with(&format!("claude:{uuid}:")) {
+            return Err(Error::Verification("The saved login belongs to a different Claude account".into()));
+        }
+        if let Ok(mut m) = VERIFIED.lock() {
+            m.get_or_insert_with(Default::default).insert(token_key(token), snap.identity.key.clone());
+        }
     }
     let usage = anthropic_get("/api/oauth/usage", token)?;
     let out = parse_exact_usage(&usage, &altflip_core::now_rfc3339());

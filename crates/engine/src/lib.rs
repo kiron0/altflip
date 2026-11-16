@@ -22,7 +22,8 @@ use std::time::Duration;
 
 const CLAUDE_ESTIMATE_SOURCE: &str = "Claude Desktop history";
 const CODEX_LOG_SOURCE: &str = "Codex session log";
-const CLAUDE_SIGNED_OUT: &str = "Claude Code needs login. Run claude auth login in Terminal to sign in first, then press Refresh.";
+const CLAUDE_SIGNED_OUT: &str =
+    "Claude Code needs login. Run claude auth login in Terminal to sign in first, then press Refresh.";
 
 pub fn sign_in_hint(provider: ProviderId) -> &'static str {
     match provider {
@@ -997,10 +998,13 @@ impl Engine {
                         .collect();
                     let accounts = self.db().accounts(Some(p.id())).unwrap_or_default();
                     let account_of = |key: &Option<String>| {
-                        key.as_ref().and_then(|k| accounts.iter().find(|a| &a.account_identifier == k)).map(|a| a.id.clone())
+                        key.as_ref()
+                            .and_then(|k| accounts.iter().find(|a| &a.account_identifier == k))
+                            .map(|a| a.id.clone())
                     };
                     readings.retain(|r| {
-                        !keys.contains(&r.account_key) && account_of(&r.account_key).is_none_or(|id| !had_live.contains(&id))
+                        !keys.contains(&r.account_key)
+                            && account_of(&r.account_key).is_none_or(|id| !had_live.contains(&id))
                     });
                     for key in &keys {
                         if let Some(id) = account_of(key) {
@@ -1124,7 +1128,9 @@ impl Engine {
         for row in rows {
             {
                 let mut last = self.last_live.lock().unwrap_or_else(|e| e.into_inner());
-                if !force && last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+                let every = if p.id() == ProviderId::Claude { 180 } else { 60 };
+                let min = if force { 20 } else { every };
+                if last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(min)) {
                     continue;
                 }
                 last.insert(row.id.clone(), std::time::Instant::now());

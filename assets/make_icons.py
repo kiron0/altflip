@@ -49,38 +49,53 @@ def gradient(size, c1, c2, vertical=False):
     return Image.composite(top, base, mask)
 
 
+def squircle(S, x0, y0, x1, y1, n=5.0, steps=720):
+    import math
+
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    rx, ry = (x1 - x0) / 2, (y1 - y0) / 2
+    pts = []
+    for i in range(steps):
+        t = 2 * math.pi * i / steps
+        c, s_ = math.cos(t), math.sin(t)
+        pts.append((cx + rx * math.copysign(abs(c) ** (2 / n), c), cy + ry * math.copysign(abs(s_) ** (2 / n), s_)))
+    m = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(m).polygon(pts, fill=255)
+    return m
+
+
 def app_icon(size=1024):
     S = size * 2
-    pad = int(S * 0.098)
-    r = int(S * 0.185)
-    shape = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(shape).rounded_rectangle([pad, pad, S - pad, S - pad], r, fill=255)
+    k0 = S / 1024
+    x0, y0, x1, y1 = 100 * k0, 100 * k0, 924 * k0, 924 * k0
+    shape = squircle(S, x0, y0, x1, y1)
 
-    bg = gradient((S, S), (122, 128, 255), (84, 52, 214))
+    bg = gradient((S, S), (122, 130, 255), (110, 63, 216))
     glow = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(glow).ellipse([int(S * 0.05), int(S * -0.05), int(S * 0.75), int(S * 0.55)], fill=90)
-    glow = glow.filter(ImageFilter.GaussianBlur(S * 0.08))
-    bg = Image.composite(Image.new("RGB", (S, S), (190, 196, 255)), bg, glow)
+    ImageDraw.Draw(glow).ellipse([int(S * 0.02), int(S * -0.08), int(S * 0.62), int(S * 0.45)], fill=95)
+    glow = glow.filter(ImageFilter.GaussianBlur(S * 0.09))
+    bg = Image.composite(Image.new("RGB", (S, S), (196, 200, 255)), bg, glow)
+    deep = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(deep).ellipse([int(S * 0.55), int(S * 0.6), int(S * 1.15), int(S * 1.2)], fill=110)
+    deep = deep.filter(ImageFilter.GaussianBlur(S * 0.1))
+    bg = Image.composite(Image.new("RGB", (S, S), (42, 22, 147)), bg, deep)
 
-    k = S * 0.032
+    k = (x1 - x0) / 25.0
     gw = 18 * k
     ox = (S - gw) / 2
-    oy = S * 0.30 - 1.5 * k
+    oy = y0 + (x1 - x0) * 0.2
     g = glyph_boxes(k, ox, oy)
+    b = g["body"]
 
     shadow = Image.new("L", (S, S), 0)
-    b = g["body"]
-    ImageDraw.Draw(shadow).rounded_rectangle([b[0], b[1] + S * 0.03, b[2], b[3] + S * 0.03], radius=g["radius"], fill=150)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(S * 0.035))
-    bg = Image.composite(Image.new("RGB", (S, S), (30, 18, 90)), bg, shadow)
+    ImageDraw.Draw(shadow).rounded_rectangle([b[0], b[1] + 16 * k0, b[2], b[3] + 16 * k0], radius=g["radius"], fill=150)
+    shadow = ImageChops.multiply(shadow.filter(ImageFilter.GaussianBlur(18 * k0)), shape)
+    bg = Image.composite(Image.new("RGB", (S, S), (28, 15, 107)), bg, shadow)
 
     body_mask = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(body_mask).rounded_rectangle(g["body"], radius=g["radius"], fill=255)
-    body = gradient((S, S), (255, 255, 255), (226, 225, 242), vertical=True)
-    hl = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(hl).ellipse([b[0] + S * 0.04, b[1] + S * 0.03, b[0] + S * 0.2, b[1] + S * 0.2], fill=110)
-    hl = ImageChops.multiply(hl.filter(ImageFilter.GaussianBlur(S * 0.03)), body_mask)
-    body = Image.composite(Image.new("RGB", (S, S), (255, 255, 255)), body, hl)
+    ImageDraw.Draw(body_mask).rounded_rectangle(b, radius=g["radius"], fill=255)
+    body_mask = ImageChops.multiply(body_mask, shape)
+    body = gradient((S, S), (255, 255, 255), (228, 226, 255), vertical=True)
     img = Image.composite(body, bg, body_mask)
 
     d = ImageDraw.Draw(img)
@@ -88,12 +103,25 @@ def app_icon(size=1024):
         d.ellipse(e, fill=(27, 24, 64))
     for p in g["pupils"]:
         d.ellipse(p, fill=(255, 255, 255))
-    rim = Image.new("L", (S, S), 0)
-    ImageDraw.Draw(rim).rounded_rectangle([pad, pad, S - pad, S - pad], r, outline=60, width=int(S * 0.004))
-    img = Image.composite(Image.new("RGB", (S, S), (255, 255, 255)), img, rim)
 
-    final = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    final.paste(img, (0, 0), shape)
+    inner = squircle(S, x0 + 3 * k0, y0 + 3 * k0, x1 - 3 * k0, y1 - 3 * k0)
+    rim = ImageChops.subtract(shape, inner)
+    rim_grad = gradient((S, S), (255, 255, 255), (255, 255, 255), vertical=True)
+    rim_alpha = Image.new("L", (S, S), 0)
+    ImageDraw.Draw(rim_alpha).rectangle([0, 0, S, S], fill=0)
+    for yy in range(S):
+        f = yy / S
+        a_ = 140 if f < 0.05 else int(140 - (f - 0.05) / 0.35 * 120) if f < 0.4 else int(20 + (f - 0.4) / 0.6 * 26)
+        ImageDraw.Draw(rim_alpha).line([(0, yy), (S, yy)], fill=max(0, a_))
+    img = Image.composite(rim_grad, img, ImageChops.multiply(rim, rim_alpha))
+
+    plate_shadow = shape.filter(ImageFilter.GaussianBlur(20 * k0))
+    plate_shadow = ImageChops.offset(plate_shadow, 0, int(14 * k0)).point(lambda v: int(v * 0.32))
+    final = Image.new("RGBA", (S, S), (20, 12, 64, 0))
+    final.putalpha(plate_shadow)
+    plate = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    plate.paste(img, (0, 0), shape)
+    final = Image.alpha_composite(final, plate)
     return final.resize((size, size), Image.LANCZOS)
 
 

@@ -675,7 +675,8 @@ fn listening_ports(p: &ProcView) -> Vec<u16> {
             .output()
         {
             for l in String::from_utf8_lossy(&out.stdout).lines() {
-                if let Some(port) = l.strip_prefix('n').and_then(|a| a.rsplit_once(':')).and_then(|(_, n)| n.parse().ok())
+                if let Some(port) =
+                    l.strip_prefix('n').and_then(|a| a.rsplit_once(':')).and_then(|(_, n)| n.parse().ok())
                 {
                     ports.push(port);
                 }
@@ -735,7 +736,11 @@ fn window_label(window: &str, fallback: &str) -> String {
     }
 }
 
-pub fn parse_quota_summary(v: &serde_json::Value, email: &str, now: chrono::DateTime<chrono::Utc>) -> Vec<UsageReading> {
+pub fn parse_quota_summary(
+    v: &serde_json::Value,
+    email: &str,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<UsageReading> {
     let observed = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let groups = v.pointer("/response/groups").and_then(|g| g.as_array());
     let mut out = Vec::new();
@@ -823,7 +828,8 @@ pub fn live_usage() -> Vec<UsageReading> {
     for p in process::snapshot() {
         let Some(csrf) = is_language_server(&p) else { continue };
         for port in listening_ports(&p) {
-            let Some(status) = language_server_call(port, csrf, "GetUserStatus").filter(|v| v.get("userStatus").is_some())
+            let Some(status) =
+                language_server_call(port, csrf, "GetUserStatus").filter(|v| v.get("userStatus").is_some())
             else {
                 continue;
             };
