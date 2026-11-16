@@ -283,6 +283,17 @@ impl Antigravity {
             Some(_) => "In Antigravity, open the account menu, choose Sign out, then sign in with the other Google account. AltFlip saves it as soon as the sign-in changes.",
             None => "Sign in to Antigravity with the Google account you want to add. AltFlip saves it as soon as the sign-in appears.",
         });
+        self.wait_for_new_sign_in(before, cancel, out, timeout, poll)
+    }
+
+    fn wait_for_new_sign_in(
+        &self,
+        before: Option<String>,
+        cancel: &AtomicBool,
+        out: OutputSink,
+        timeout: Duration,
+        poll: Duration,
+    ) -> Result<Snapshot> {
         let start = Instant::now();
         let mut said_signed_out = false;
         loop {
@@ -521,7 +532,42 @@ impl Provider for Antigravity {
     }
 
     fn login(&self, cancel: &AtomicBool, out: OutputSink) -> Result<Snapshot> {
-        self.watch_sign_in(cancel, out, Duration::from_secs(900), Duration::from_secs(2), true)
+        let ide = self.apps().into_iter().find(|(_, k)| *k == ProcessKind::Ide);
+        let signed_in: Vec<PathBuf> = self
+            .state_dbs()
+            .into_iter()
+            .filter(|db| matches!(altflip_core::statedb::read(db, KEY_OAUTH), Ok(Some(_))))
+            .collect();
+        let Some((ide_path, _)) = ide.filter(|_| !signed_in.is_empty()) else {
+            return self.watch_sign_in(cancel, out, Duration::from_secs(900), Duration::from_secs(2), true);
+        };
+        let running: Vec<ProcessInfo> = self.processes().into_iter().filter(|p| p.kind == ProcessKind::Ide).collect();
+        if !running.is_empty() {
+            out("Closing Antigravity so it can sign in to another account…");
+            for t in &running {
+                let _ = process::request_quit(t);
+            }
+            let pids: Vec<u32> = running.iter().map(|p| p.pid).collect();
+            if !process::wait_exit(&pids, Duration::from_secs(30)) {
+                return Err(Error::Platform("Antigravity did not close. Quit it yourself, then try again.".into()));
+            }
+        }
+        for db in &signed_in {
+            for key in [KEY_OAUTH, KEY_STATUS, KEY_AUTH_SYNC, KEY_CREDITS] {
+                altflip_core::statedb::delete(db, key)?;
+            }
+        }
+        let before = self.capture()?.map(|s| s.identity.key);
+        out("Signed Antigravity out. Opening it now…");
+        if let Err(e) = process::launch(&ide_path) {
+            out(&format!("Could not open Antigravity ({e}). Open it yourself."));
+        }
+        out("In Antigravity, choose Sign in with Google. Your browser opens; pick the other Google account there. AltFlip saves it as soon as the sign-in appears.");
+        let res = self.wait_for_new_sign_in(before, cancel, out, Duration::from_secs(900), Duration::from_secs(2));
+        if res.is_err() {
+            out("Antigravity is still signed out. Switch to a saved account in AltFlip to sign it back in.");
+        }
+        res
     }
 
     fn restart_targets(&self, procs: &[ProcessInfo]) -> Vec<ProcessInfo> {
@@ -611,17 +657,17 @@ fn listening_ports(p: &ProcView) -> Vec<u16> {
     ports
 }
 
-fn fetch_status(port: u16, csrf: &str) -> Option<serde_json::Value> {
+fn language_server_call(port: u16, csrf: &str, method: &str) -> Option<serde_json::Value> {
     let tls = ureq::tls::TlsConfig::builder().disable_verification(true).build();
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(4)))
+            .timeout_global(Some(Duration::from_secs(6)))
             .http_status_as_error(false)
             .tls_config(tls)
             .build(),
     );
     for scheme in ["http", "https"] {
-        let url = format!("{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetUserStatus");
+        let url = format!("{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/{method}");
         let Ok(mut res) = agent
             .post(&url)
             .header("Content-Type", "application/json")
@@ -635,12 +681,73 @@ fn fetch_status(port: u16, csrf: &str) -> Option<serde_json::Value> {
             continue;
         }
         if let Ok(v) = res.body_mut().read_json::<serde_json::Value>() {
-            if v.get("userStatus").is_some() {
-                return Some(v);
-            }
+            return Some(v);
         }
     }
     None
+}
+
+fn window_minutes(window: &str) -> Option<i64> {
+    match window {
+        "5h" => Some(300),
+        "weekly" => Some(10_080),
+        "daily" => Some(1_440),
+        _ => None,
+    }
+}
+
+fn window_label(window: &str, fallback: &str) -> String {
+    match window {
+        "5h" => "5-hour".into(),
+        "weekly" => "Weekly".into(),
+        "daily" => "Daily".into(),
+        _ => fallback.trim_end_matches(" Remaining").to_string(),
+    }
+}
+
+pub fn parse_quota_summary(v: &serde_json::Value, email: &str, now: chrono::DateTime<chrono::Utc>) -> Vec<UsageReading> {
+    let observed = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let groups = v.pointer("/response/groups").and_then(|g| g.as_array());
+    let mut out = Vec::new();
+    for g in groups.into_iter().flatten() {
+        let group = g
+            .get("displayName")
+            .and_then(|n| n.as_str())
+            .unwrap_or("Models")
+            .trim_end_matches(" Models")
+            .trim_end_matches(" models")
+            .to_string();
+        for b in g.get("buckets").and_then(|b| b.as_array()).into_iter().flatten() {
+            let Some(id) = b.get("bucketId").and_then(|i| i.as_str()) else { continue };
+            let window = b.get("window").and_then(|w| w.as_str()).unwrap_or_default();
+            let reset = b
+                .get("resetTime")
+                .and_then(|r| r.as_str())
+                .and_then(|r| chrono::DateTime::parse_from_rfc3339(r).ok())
+                .map(|r| r.with_timezone(&chrono::Utc));
+            let frac = b.get("remainingFraction").and_then(|f| f.as_f64());
+            if frac.is_none() && reset.is_none() {
+                continue;
+            }
+            let reset_passed = reset.is_some_and(|r| r < now);
+            let used = if reset_passed { 0.0 } else { ((1.0 - frac.unwrap_or(0.0)) * 100.0).clamp(0.0, 100.0) };
+            let name = b.get("displayName").and_then(|n| n.as_str()).unwrap_or(id);
+            out.push(UsageReading {
+                usage_type: format!("quota:{id}"),
+                label: format!("{group} · {}", window_label(window, name)),
+                used_percent: Some(used),
+                used_value: None,
+                limit_value: None,
+                window_minutes: window_minutes(window),
+                reset_at: reset.filter(|_| !reset_passed).map(|r| r.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+                source: LIVE_SOURCE.into(),
+                confidence: "provider-reported".into(),
+                observed_at: observed.clone(),
+                account_key: Some(format!("google:{email}")),
+            });
+        }
+    }
+    out
 }
 
 pub fn parse_live_status(v: &serde_json::Value, now: chrono::DateTime<chrono::Utc>) -> Vec<UsageReading> {
@@ -686,15 +793,25 @@ pub fn live_usage() -> Vec<UsageReading> {
     for p in process::snapshot() {
         let Some(csrf) = is_language_server(&p) else { continue };
         for port in listening_ports(&p) {
-            let Some(v) = fetch_status(port, csrf) else { continue };
-            let readings = parse_live_status(&v, now);
-            if readings.is_empty() {
+            let Some(status) = language_server_call(port, csrf, "GetUserStatus").filter(|v| v.get("userStatus").is_some())
+            else {
                 continue;
+            };
+            let Some(email) = status.pointer("/userStatus/email").and_then(|e| e.as_str()).filter(|e| !e.is_empty())
+            else {
+                break;
+            };
+            let key = Some(format!("google:{email}"));
+            if out.iter().any(|r| r.account_key == key) {
+                break;
             }
-            let key = readings[0].account_key.clone();
-            if !out.iter().any(|r| r.account_key == key) {
-                out.extend(readings);
+            let mut readings = language_server_call(port, csrf, "RetrieveUserQuotaSummary")
+                .map(|v| parse_quota_summary(&v, email, now))
+                .unwrap_or_default();
+            if readings.is_empty() {
+                readings = parse_live_status(&status, now);
             }
+            out.extend(readings);
             break;
         }
     }
@@ -706,6 +823,32 @@ mod tests {
     use super::*;
     use crate::pb::build;
     use crate::testutil::{ctx, jwt};
+
+    #[test]
+    fn parses_quota_summary_groups() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-16T11:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let v = serde_json::json!({"response": {"groups": [
+            {"displayName": "Claude and GPT models", "buckets": [
+                {"bucketId": "3p-weekly", "displayName": "Weekly Limit Remaining", "window": "weekly", "remainingFraction": 0.92, "resetTime": "2026-11-20T15:40:03Z"},
+                {"bucketId": "3p-5h", "displayName": "Five Hour Limit Remaining", "window": "5h", "resetTime": "2026-11-16T15:30:09Z"}
+            ]},
+            {"displayName": "Gemini Models", "buckets": [
+                {"bucketId": "gemini-5h", "window": "5h", "remainingFraction": 0.2, "resetTime": "2026-11-16T10:00:00Z"}
+            ]}
+        ]}});
+        let r = parse_quota_summary(&v, "a@b.c", now);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].usage_type, "quota:3p-weekly");
+        assert_eq!(r[0].label, "Claude and GPT · Weekly");
+        assert!((r[0].used_percent.unwrap() - 8.0).abs() < 0.001);
+        assert_eq!(r[0].window_minutes, Some(10_080));
+        assert_eq!(r[1].label, "Claude and GPT · 5-hour");
+        assert_eq!(r[1].used_percent, Some(100.0));
+        assert_eq!(r[2].label, "Gemini · 5-hour");
+        assert_eq!(r[2].used_percent, Some(0.0));
+        assert!(r[2].reset_at.is_none());
+        assert_eq!(r[2].account_key.as_deref(), Some("google:a@b.c"));
+    }
 
     #[test]
     fn parses_live_language_server_status() {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Search, Star, Trash2 } from "lucide-react";
 import { api, errorText, type AccountView, type ProviderId, type ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
-import { cn, countdown, healthText, planLabel, relativeTime } from "@/lib/utils";
+import { cn, countdown, healthText, planLabel, relativeTime, signInHint } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { AccountRow, StateBadge } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -122,6 +122,11 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
         <Detail label="Authentication">
           <Badge tone={account.health === "ok" ? "ok" : account.health === "unknown" ? "neutral" : "danger"}>{healthText[account.health]}</Badge>
         </Detail>
+        {(account.health === "expired" || account.health === "needs-reauth") && (
+          <Detail label="To fix">
+            <span className="text-danger">{signInHint(provider.info.id)}</span>
+          </Detail>
+        )}
         <Detail label="Added">{relativeTime(account.createdAt)}</Detail>
         <Detail label="Last used">{relativeTime(account.lastUsedAt)}</Detail>
         <Detail label="Credentials saved">{relativeTime(account.lastCapturedAt)}</Detail>

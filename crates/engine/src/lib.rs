@@ -22,7 +22,15 @@ use std::time::Duration;
 
 const CLAUDE_ESTIMATE_SOURCE: &str = "Claude Desktop history";
 const CODEX_LOG_SOURCE: &str = "Codex session log";
-const CLAUDE_SIGNED_OUT: &str = "Claude Code is signed out. Run claude auth login in Terminal, then press Refresh.";
+const CLAUDE_SIGNED_OUT: &str = "Claude Code needs login. Run claude auth login in Terminal to sign in first, then press Refresh.";
+
+pub fn sign_in_hint(provider: ProviderId) -> &'static str {
+    match provider {
+        ProviderId::Claude => "Run claude auth login in Terminal to sign in first.",
+        ProviderId::Codex => "Run codex login in Terminal to sign in first.",
+        ProviderId::Antigravity => "Open Antigravity and sign in first.",
+    }
+}
 
 pub struct EngineConfig {
     pub data_dir: PathBuf,
@@ -405,8 +413,9 @@ impl Engine {
     fn upsert_guard(snap: &Snapshot, health: AuthHealth) -> Result<()> {
         if health == AuthHealth::NeedsReauth {
             return Err(Error::Credential(format!(
-                "{}'s current sign-in is unreadable or incomplete. Sign in again with {} first.",
-                snap.provider, snap.provider
+                "{}'s current sign-in is unreadable or incomplete. {}",
+                snap.provider,
+                sign_in_hint(snap.provider)
             )));
         }
         Ok(())
@@ -975,12 +984,28 @@ impl Engine {
                     readings.extend(self.live_usage(p, force));
                 }
                 ProviderId::Antigravity => {
-                    let live = altflip_providers::antigravity::live_usage();
+                    use altflip_providers::antigravity::{live_usage, LIVE_SOURCE, LOCAL_SOURCE};
+                    let live = live_usage();
                     let keys: HashSet<Option<String>> = live.iter().map(|r| r.account_key.clone()).collect();
-                    readings.retain(|r| !keys.contains(&r.account_key));
-                    for key in keys.into_iter().flatten() {
-                        if let Ok(Some(a)) = self.db().account_by_identity(p.id(), &key) {
-                            stale_sources.push((Some(a.id), altflip_providers::antigravity::LOCAL_SOURCE));
+                    let had_live: HashSet<String> = self
+                        .db()
+                        .latest_usage()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|u| u.reading.source == LIVE_SOURCE)
+                        .map(|u| u.account_id)
+                        .collect();
+                    let accounts = self.db().accounts(Some(p.id())).unwrap_or_default();
+                    let account_of = |key: &Option<String>| {
+                        key.as_ref().and_then(|k| accounts.iter().find(|a| &a.account_identifier == k)).map(|a| a.id.clone())
+                    };
+                    readings.retain(|r| {
+                        !keys.contains(&r.account_key) && account_of(&r.account_key).is_none_or(|id| !had_live.contains(&id))
+                    });
+                    for key in &keys {
+                        if let Some(id) = account_of(key) {
+                            stale_sources.push((Some(id.clone()), LOCAL_SOURCE));
+                            stale_sources.push((Some(id), LIVE_SOURCE));
                         }
                     }
                     readings.extend(live);

@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, Star } from "lucide-react";
 import type { AccountView, ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
-import { cn, countdown, planLabel, rowState, type RowState } from "@/lib/utils";
+import { cn, countdown, planLabel, rowState, signInHint, type RowState } from "@/lib/utils";
 import { Badge, Spinner } from "./ui/primitives";
 import { Button } from "./ui/button";
 
@@ -90,7 +90,9 @@ export function AccountRow({
         </div>
       </div>
       {compact && (account.health === "expired" || account.health === "needs-reauth") && (
-        <AlertTriangle className="size-3.5 text-danger" aria-label="Sign-in expired" />
+        <span title={signInHint(provider.info.id)}>
+          <AlertTriangle className="size-3.5 text-danger" aria-label={signInHint(provider.info.id)} />
+        </span>
       )}
       {busy ? (
         <Spinner className="text-accent" />

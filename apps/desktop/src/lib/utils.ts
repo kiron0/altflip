@@ -1,6 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
-import type { AccountView, AuthHealth, ProviderState } from "./api";
+import type { AccountView, AuthHealth, ProviderId, ProviderState } from "./api";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -93,6 +93,17 @@ export function rowState(a: AccountView): RowState {
   if (a.health === "expired" || a.health === "needs-reauth") return "expired";
   if (a.lastError) return "error";
   return "idle";
+}
+
+export function signInHint(provider: ProviderId): string {
+  switch (provider) {
+    case "claude-code":
+      return "Run claude auth login in Terminal to sign in first.";
+    case "codex":
+      return "Run codex login in Terminal to sign in first.";
+    case "antigravity":
+      return "Open Antigravity and sign in first.";
+  }
 }
 
 export const healthText: Record<AuthHealth, string> = {

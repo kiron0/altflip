@@ -27,7 +27,12 @@ fn refresh_status(app: &AppHandle) {
                     notify(
                         app,
                         "Sign-in needed",
-                        &format!("Your {} {} account needs authentication.", p.info.name, a.row.label),
+                        &format!(
+                            "Your {} {} account needs login. {}",
+                            p.info.name,
+                            a.row.label,
+                            altflip_engine::sign_in_hint(p.info.id)
+                        ),
                         true,
                     );
                 }

@@ -17,7 +17,7 @@ function emptyText(p: ProviderState) {
     case "claude-code":
       return "No reading yet. Press Refresh.";
     case "antigravity":
-      return "No reading yet. Antigravity saves quota for the account signed in to the IDE when it starts.";
+      return "No reading yet. Live quota appears while Antigravity or agy is running with this account.";
     default:
       return "No reading yet.";
   }
