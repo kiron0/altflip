@@ -8,7 +8,25 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
 import { Badge, Card, Meter } from "@/components/ui/primitives";
 
-const STALE_MS = 6 * 3600 * 1000;
+const STALE_MS = 15 * 60 * 1000;
+
+function useNow(every = 15000) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(t);
+  }, [every]);
+  return now;
+}
+
+function resetText(iso: string | null | undefined, now: number) {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return null;
+  if (t - now < 86400000) return `Resets in ${countdown(iso, now)}`;
+  const d = new Date(t);
+  return `Resets ${d.toLocaleDateString([], { weekday: "short" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
 
 function emptyText(p: ProviderState) {
   switch (p.info.id) {
@@ -23,37 +41,48 @@ function emptyText(p: ProviderState) {
   }
 }
 
-function Reading({ u, showCountdown }: { u: UsageRow; showCountdown: boolean }) {
-  const now = Date.now();
-  const resetPassed = !!u.resetAt && Date.parse(u.resetAt) < now;
-  const stale = !resetPassed && now - Date.parse(u.observedAt) > STALE_MS;
-  const reset = countdown(u.resetAt);
+function Reading({ u, now, showCountdown }: { u: UsageRow; now: number; showCountdown: boolean }) {
+  const resetPassed = !!u.resetAt && Date.parse(u.resetAt) <= now;
+  const pct = u.usedPercent == null ? null : resetPassed ? 0 : Math.round(u.usedPercent);
+  const reset = resetText(u.resetAt, now);
   return (
-    <div className={cn(resetPassed && "opacity-60")}>
+    <div>
       <div className="mb-1.5 flex items-baseline gap-2 text-[12.5px]">
         <span className="min-w-0 flex-1 truncate">{u.label}</span>
-        {u.usedPercent != null ? (
+        {pct != null ? (
           <span className="tabular-nums">
-            <span className="font-display text-[15px] font-semibold">{Math.round(u.usedPercent)}%</span>
-            <span className="text-faint"> used · {Math.max(0, 100 - Math.round(u.usedPercent))}% left</span>
+            <span className="font-display text-[15px] font-semibold">{pct}%</span>
+            <span className="text-faint"> used</span>
           </span>
         ) : (
           <span className="text-faint">—</span>
         )}
       </div>
-      {u.usedPercent != null && <Meter value={u.usedPercent} />}
-      <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-faint">
-        {resetPassed ? (
-          <Badge tone="info">Reset since this reading</Badge>
-        ) : (
-          showCountdown && reset && <span>Resets in {reset}</span>
-        )}
-        <span>
-          {u.source} · {relativeTime(u.observedAt)}
-        </span>
-        {u.confidence === "estimated" && <Badge tone="neutral">Estimated reset</Badge>}
-        {stale && <Badge tone="warn">Stale</Badge>}
+      {pct != null && <Meter value={pct} />}
+      <div className="mt-1.5 text-[11px] text-faint tabular-nums">
+        {resetPassed ? "New window started" : showCountdown && reset ? reset : `${Math.max(0, 100 - (pct ?? 0))}% left`}
       </div>
+    </div>
+  );
+}
+
+function Freshness({ usage, now, busy, onRefresh }: { usage: UsageRow[]; now: number; busy: boolean; onRefresh: () => void }) {
+  const latest = usage.reduce<UsageRow | null>((m, u) => (!m || Date.parse(u.observedAt) > Date.parse(m.observedAt) ? u : m), null);
+  if (!latest) return null;
+  const stale = now - Date.parse(latest.observedAt) > STALE_MS;
+  return (
+    <div className="mt-3 flex items-center gap-1.5 text-[11px] text-faint">
+      <span className={cn("size-1.5 rounded-full", stale ? "bg-warn" : "bg-ok", !stale && "animate-pulse")} aria-hidden />
+      <span title={`Source: ${latest.source}`}>Updated {relativeTime(latest.observedAt, now)}</span>
+      <button
+        type="button"
+        className="ml-0.5 rounded p-0.5 hover:text-text disabled:opacity-50"
+        aria-label="Refresh usage"
+        disabled={busy}
+        onClick={onRefresh}
+      >
+        <RefreshCw className={cn("size-3", busy && "animate-spin")} />
+      </button>
     </div>
   );
 }
@@ -65,6 +94,8 @@ export function UsagePage() {
   const load = useApp((s) => s.load);
   const [busy, setBusy] = useState(false);
   const first = useRef(true);
+  const now = useNow();
+  const lastAuto = useRef(0);
 
   const refresh = async (quiet = false) => {
     setBusy(true);
@@ -84,6 +115,17 @@ export function UsagePage() {
       void refresh(true);
     }
   }, [settings?.usageMonitoring]);
+
+  useEffect(() => {
+    if (!overview || !settings?.usageMonitoring || busy) return;
+    const crossed = overview.providers.some((p) =>
+      p.accounts.some((a) => a.usage.some((u) => u.resetAt && Date.parse(u.resetAt) <= now && Date.parse(u.observedAt) < Date.parse(u.resetAt))),
+    );
+    if (crossed && now - lastAuto.current > 60000) {
+      lastAuto.current = now;
+      void refresh(true);
+    }
+  }, [now, overview, settings?.usageMonitoring]);
 
   if (!overview) return null;
   const providers = overview.providers.filter((p) => p.info.installed || p.accounts.length);
@@ -134,10 +176,11 @@ export function UsagePage() {
                       ) : (
                         <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                           {a.usage.map((u) => (
-                            <Reading key={u.usageType} u={u} showCountdown={!!settings?.showResetCountdowns} />
+                            <Reading key={u.usageType} u={u} now={now} showCountdown={!!settings?.showResetCountdowns} />
                           ))}
                         </div>
                       )}
+                      <Freshness usage={a.usage} now={now} busy={busy} onRefresh={() => void refresh()} />
                     </div>
                   </div>
                 ))}

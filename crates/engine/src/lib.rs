@@ -1129,8 +1129,8 @@ impl Engine {
         for row in rows {
             {
                 let mut last = self.last_live.lock().unwrap_or_else(|e| e.into_inner());
-                let every = if p.id() == ProviderId::Claude { 180 } else { 60 };
-                let min = if force { 20 } else { every };
+                let every = if p.id() == ProviderId::Claude { 120 } else { 60 };
+                let min = if force { 15 } else { every };
                 if last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(min)) {
                     continue;
                 }
@@ -1157,7 +1157,18 @@ impl Engine {
                     out.extend(r);
                     self.note_usage_error(&row, None);
                 }
-                Err(e) => self.note_usage_error(&row, Some(e.to_string())),
+                Err(e) => {
+                    let transient = matches!(e, Error::Platform(_));
+                    let has_reading = transient
+                        && self.db().latest_usage().unwrap_or_default().iter().any(|u| u.account_id == row.id);
+                    if has_reading {
+                        self.note_usage_error(&row, None);
+                    } else if altflip_providers::claude::is_throttled(&e) {
+                        self.note_usage_error(&row, Some("Waiting for the first reading from Anthropic.".into()));
+                    } else {
+                        self.note_usage_error(&row, Some(e.to_string()));
+                    }
+                }
             }
         }
         out

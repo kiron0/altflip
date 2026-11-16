@@ -309,9 +309,15 @@ impl Provider for Claude {
     }
 }
 
-static BACKOFF: std::sync::Mutex<Option<std::collections::HashMap<String, chrono::DateTime<chrono::Utc>>>> =
+static BACKOFF: std::sync::Mutex<Option<std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, u32)>>> =
     std::sync::Mutex::new(None);
 static VERIFIED: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+pub const THROTTLED: &str = "Anthropic is pacing usage checks. AltFlip keeps the last reading and checks again shortly.";
+
+pub fn is_throttled(e: &Error) -> bool {
+    matches!(e, Error::Platform(m) if m == THROTTLED)
+}
 
 fn token_key(token: &str) -> String {
     altflip_core::short_hash(token.as_bytes())
@@ -319,24 +325,34 @@ fn token_key(token: &str) -> String {
 
 fn backoff_until(token: &str) -> Option<chrono::DateTime<chrono::Utc>> {
     let map = BACKOFF.lock().ok()?;
-    map.as_ref()?.get(&token_key(token)).copied().filter(|t| *t > chrono::Utc::now())
+    map.as_ref()?.get(&token_key(token)).map(|b| b.0).filter(|t| *t > chrono::Utc::now())
 }
 
-fn set_backoff(token: &str, secs: i64) {
+pub(crate) fn backoff_secs(retry_after: Option<i64>, strikes: u32) -> i64 {
+    let escalated = 120i64.saturating_mul(1i64 << strikes.min(4));
+    retry_after.unwrap_or(0).max(escalated).clamp(60, 1800)
+}
+
+fn set_backoff(token: &str, retry_after: Option<i64>) {
     if let Ok(mut map) = BACKOFF.lock() {
-        map.get_or_insert_with(Default::default)
-            .insert(token_key(token), chrono::Utc::now() + chrono::Duration::seconds(secs.clamp(60, 3600)));
+        let map = map.get_or_insert_with(Default::default);
+        let strikes = map.get(&token_key(token)).map(|b| b.1).unwrap_or(0);
+        let until = chrono::Utc::now() + chrono::Duration::seconds(backoff_secs(retry_after, strikes));
+        map.insert(token_key(token), (until, strikes + 1));
     }
 }
 
-fn rate_limited_text(until: chrono::DateTime<chrono::Utc>) -> String {
-    let local = until.with_timezone(&chrono::Local).format("%H:%M");
-    format!("Anthropic is limiting usage checks right now. AltFlip shows the last reading and tries again at {local}.")
+fn clear_backoff(token: &str) {
+    if let Ok(mut map) = BACKOFF.lock() {
+        if let Some(m) = map.as_mut() {
+            m.remove(&token_key(token));
+        }
+    }
 }
 
 fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
-    if let Some(until) = backoff_until(token) {
-        return Err(Error::Platform(rate_limited_text(until)));
+    if backoff_until(token).is_some() {
+        return Err(Error::Platform(THROTTLED.into()));
     }
     let agent = ureq::Agent::new_with_config(
         ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(15))).http_status_as_error(false).build(),
@@ -355,10 +371,9 @@ fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
             .headers()
             .get("retry-after")
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<i64>().ok())
-            .unwrap_or(300);
+            .and_then(|v| v.trim().parse::<i64>().ok());
         set_backoff(token, secs);
-        return Err(Error::Platform(rate_limited_text(backoff_until(token).unwrap_or_else(chrono::Utc::now))));
+        return Err(Error::Platform(THROTTLED.into()));
     }
     if status == 401 || status == 403 {
         return Err(Error::Credential(
@@ -368,6 +383,7 @@ fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
     if status != 200 {
         return Err(Error::Platform(format!("Anthropic answered {status}")));
     }
+    clear_backoff(token);
     resp.body_mut()
         .read_json::<serde_json::Value>()
         .map_err(|e| Error::Platform(format!("Unexpected answer from Anthropic: {e}")))
@@ -562,6 +578,18 @@ mod tests {
         assert_eq!(u[0].used_percent, Some(42.5));
         assert_eq!(u[0].reset_at.as_deref(), Some("2026-11-16T10:00:00Z"));
         assert_eq!(u[1].label, "Weekly usage");
+    }
+
+    #[test]
+    fn backoff_escalates_and_honors_retry_after() {
+        assert_eq!(backoff_secs(None, 0), 120);
+        assert_eq!(backoff_secs(None, 1), 240);
+        assert_eq!(backoff_secs(None, 9), 1800);
+        assert_eq!(backoff_secs(Some(900), 0), 900);
+        assert_eq!(backoff_secs(Some(5), 0), 120);
+        let e = Error::Platform(THROTTLED.into());
+        assert!(is_throttled(&e));
+        assert!(!is_throttled(&Error::Platform("Anthropic answered 500".into())));
     }
 
     #[test]
