@@ -43,7 +43,7 @@ function emptyText(p: ProviderState) {
     case "claude-code":
       return "No reading yet. Press Refresh.";
     case "antigravity":
-      return "No reading yet. Live quota appears while Antigravity or agy is running with this account.";
+      return "No reading yet. AltFlip reads live quota for each saved account from Google every 2 minutes. Antigravity or agy must be installed.";
     default:
       return "No reading yet.";
   }

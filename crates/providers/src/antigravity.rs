@@ -24,7 +24,7 @@ pub struct Antigravity {
     ctx: Ctx,
 }
 
-fn decode_payload(raw: &[u8]) -> Option<serde_json::Value> {
+pub(crate) fn decode_payload(raw: &[u8]) -> Option<serde_json::Value> {
     let s = std::str::from_utf8(raw).ok()?.trim();
     if let Some(b) = s.strip_prefix(B64_PREFIX) {
         let bytes = base64::engine::general_purpose::STANDARD.decode(b).ok()?;
@@ -41,7 +41,7 @@ fn payload_email(v: &serde_json::Value) -> Option<String> {
         .map(|e| e.to_lowercase())
 }
 
-fn refresh_token(v: &serde_json::Value) -> Option<&str> {
+pub(crate) fn refresh_token(v: &serde_json::Value) -> Option<&str> {
     v.pointer("/token/refresh_token").and_then(|t| t.as_str()).filter(|t| !t.is_empty())
 }
 

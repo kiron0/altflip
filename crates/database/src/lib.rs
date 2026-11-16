@@ -404,6 +404,13 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_plan(&self, id: &str, plan: &str) -> Result<()> {
+        self.conn
+            .execute("UPDATE accounts SET subscription_type = ?2 WHERE id = ?1", params![id, plan])
+            .map_err(db_err)?;
+        Ok(())
+    }
+
     pub fn set_health(&self, id: &str, health: AuthHealth) -> Result<()> {
         self.conn
             .execute("UPDATE accounts SET health = ?2 WHERE id = ?1", params![id, health.as_str()])

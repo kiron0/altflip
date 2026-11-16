@@ -1,4 +1,5 @@
 pub mod antigravity;
+pub mod antigravity_cloud;
 pub mod claude;
 pub mod claude_status;
 pub mod claude_usage;

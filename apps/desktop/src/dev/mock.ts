@@ -167,6 +167,9 @@ providers[1].accounts[1].usage = [
 ];
 
 providers[2].accounts[0].usage = [
+  { accountId: "a2", provider: "antigravity", usageType: "quota:gemini-5h", label: "Gemini · 5-hour", usedPercent: 35, usedValue: null, limitValue: null, windowMinutes: 300, resetAt: ahead(180), source: "Antigravity (live)", confidence: "provider-reported", observedAt: ago(1), retrievedAt: ago(1) },
+  { accountId: "a2", provider: "antigravity", usageType: "quota:gemini-weekly", label: "Gemini · Weekly", usedPercent: 52, usedValue: null, limitValue: null, windowMinutes: 10080, resetAt: ahead(4000), source: "Antigravity (live)", confidence: "provider-reported", observedAt: ago(1), retrievedAt: ago(1) },
+  { accountId: "a2", provider: "antigravity", usageType: "quota:3p-weekly", label: "Claude and GPT · Weekly", usedPercent: 91, usedValue: null, limitValue: null, windowMinutes: 10080, resetAt: ahead(4000), source: "Antigravity (live)", confidence: "provider-reported", observedAt: ago(1), retrievedAt: ago(1) },
   { accountId: "a1", provider: "antigravity", usageType: "model:flash", label: "Gemini 3.8 Flash (High)", usedPercent: 12, usedValue: null, limitValue: null, windowMinutes: null, resetAt: ahead(140), source: "Antigravity (local)", confidence: "provider-reported", observedAt: ago(20), retrievedAt: ago(2) },
   { accountId: "a1", provider: "antigravity", usageType: "model:sonnet", label: "Claude Sonnet 4.6 (Thinking)", usedPercent: 84, usedValue: null, limitValue: null, windowMinutes: null, resetAt: ahead(60), source: "Antigravity (local)", confidence: "provider-reported", observedAt: ago(20), retrievedAt: ago(2) },
 ];

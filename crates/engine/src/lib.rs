@@ -1018,11 +1018,15 @@ impl Engine {
                     let local = if p.id() == ProviderId::Claude { CLAUDE_ESTIMATE_SOURCE } else { CODEX_LOG_SOURCE };
                     readings.retain(|r| r.source != local);
                     stale_sources.push((None, local));
-                    readings.extend(self.live_usage(p, force));
+                    readings.extend(self.live_usage(p, force, &HashSet::new()));
                 }
                 ProviderId::Antigravity => {
                     use altflip_providers::antigravity::{live_usage, LIVE_SOURCE, LOCAL_SOURCE};
-                    let live = live_usage();
+                    let mut live = live_usage();
+                    if live_on {
+                        let covered: HashSet<String> = live.iter().filter_map(|r| r.account_key.clone()).collect();
+                        live.extend(self.live_usage(p, force, &covered));
+                    }
                     let keys: HashSet<Option<String>> = live.iter().map(|r| r.account_key.clone()).collect();
                     let had_live: HashSet<String> = self
                         .db()
@@ -1158,14 +1162,22 @@ impl Engine {
         Ok(renewed)
     }
 
-    fn live_usage(&self, p: &Arc<dyn Provider>, force: bool) -> Vec<altflip_core::UsageReading> {
+    fn live_usage(
+        &self,
+        p: &Arc<dyn Provider>,
+        force: bool,
+        covered: &HashSet<String>,
+    ) -> Vec<altflip_core::UsageReading> {
         let rows = self.db().accounts(Some(p.id())).unwrap_or_default();
         let live = p.capture().ok().flatten();
         let mut out = Vec::new();
         for row in rows {
+            if covered.contains(&row.account_identifier) {
+                continue;
+            }
             {
                 let mut last = self.last_live.lock().unwrap_or_else(|e| e.into_inner());
-                let every = if p.id() == ProviderId::Claude { 120 } else { 60 };
+                let every = if matches!(p.id(), ProviderId::Claude | ProviderId::Antigravity) { 120 } else { 60 };
                 let min = if force { 15 } else { every };
                 if last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(min)) {
                     continue;
@@ -1183,7 +1195,19 @@ impl Engine {
                     };
                     snap.and_then(|s| altflip_providers::codex::live_usage(&s))
                 }
-                ProviderId::Antigravity | ProviderId::OpenCode => continue,
+                ProviderId::Antigravity => {
+                    let snap = match live.as_ref().filter(|l| l.identity.key == row.account_identifier) {
+                        Some(l) => Ok(l.clone()),
+                        None => self.load_snapshot(&row),
+                    };
+                    snap.and_then(|s| altflip_providers::antigravity_cloud::usage(&s, &p.ctx().home)).map(|q| {
+                        if let Some(tier) = q.tier.filter(|t| row.subscription_type.as_deref() != Some(t.as_str())) {
+                            let _ = self.db().set_plan(&row.id, &tier);
+                        }
+                        q.readings
+                    })
+                }
+                ProviderId::OpenCode => continue,
             };
             match res {
                 Ok(mut r) => {

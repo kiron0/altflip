@@ -39,6 +39,7 @@ Off until enabled in Settings › Switching.
 - Mode: restart required while the App or IDE is open. AltFlip asks first, quits them gracefully (never forced), switches, verifies, and reopens them. If an app will not quit, nothing is changed.
 - Add accounts: Antigravity has no sign-in command, so AltFlip saves the current account, opens Antigravity, and waits for the sign-in to change after you sign in to the other Google account there. The new account is saved and becomes active.
 - Usage: per-model quota (remaining share and reset time) from the IDE's locally saved `userStatus`. It is attributed by email, and shows as reset once its reset time passes.
+- Live quota for every saved account (5-hour and weekly pools per model group, with reset times) and the plan tier come from Google's Cloud Code API (`v1internal:retrieveUserQuotaSummary`, `v1internal:loadCodeAssist` on `daily-cloudcode-pa.googleapis.com`, then `cloudcode-pa.googleapis.com`), the same calls Antigravity makes. AltFlip renews each saved sign-in in memory with Antigravity's own OAuth client, read from the installed Antigravity app or `agy` at run time, and never writes the renewed token back. Polled every 2 minutes; the account signed in to a running Antigravity is read from its language server instead. A missing remaining share is shown as unknown, never as 0% or 100%.
 - Not supported: independent IDE accounts on IDE versions before 2.6.
 - Open agent conversations do not move to the new account.
 
