@@ -118,7 +118,7 @@ const providers: ProviderState[] = [
     live: null,
     liveError: null,
     switchingEnabled: false,
-    switchingDisabledReason: "Antigravity switching is experimental. Turn it on in Settings › Advanced to use it.",
+    switchingDisabledReason: "Antigravity switching is experimental. Turn it on in Settings › Switching to use it.",
   },
 ];
 

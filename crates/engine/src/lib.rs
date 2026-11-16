@@ -260,7 +260,7 @@ impl Engine {
         }
         if p.experimental() && !self.settings().map(|s| s.experimental_enabled(p.id())).unwrap_or(false) {
             return Some(format!(
-                "{} switching is experimental. Turn it on in Settings › Advanced to use it.",
+                "{} switching is experimental. Turn it on in Settings › Switching to use it.",
                 info.name
             ));
         }

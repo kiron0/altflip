@@ -117,7 +117,7 @@ export function UsagePage() {
             <div className="divide-y divide-border">
               {p.accounts.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">No saved accounts.</p>}
               {p.accounts.map((a) => (
-                  <div key={a.id} className="grid grid-cols-[190px_1fr] gap-5 px-5 py-4">
+                  <div key={a.id} className="grid grid-cols-1 gap-3 px-5 py-4 md:grid-cols-[190px_1fr] md:gap-5">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
                         <span className="truncate font-medium">{a.label}</span>
@@ -132,7 +132,7 @@ export function UsagePage() {
                       {a.usage.length === 0 ? (
                         !a.usageError && <p className="text-[13px] text-muted">{emptyText(p)}</p>
                       ) : (
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                        <div className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                           {a.usage.map((u) => (
                             <Reading key={u.usageType} u={u} showCountdown={!!settings?.showResetCountdowns} />
                           ))}

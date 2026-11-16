@@ -8,23 +8,24 @@ import { PageHeader } from "@/components/PageHeader";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { compatText, compatTone, modeShort } from "@/components/labels";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, Field, Input, Select, Switch } from "@/components/ui/primitives";
+import { Badge, Card, Dialog, Field, Input, SectionLabel, Segmented, Select, Switch } from "@/components/ui/primitives";
+import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, right, children }: { title?: string; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section>
-      <h2 className="mb-2.5 label-mono text-faint">{title}</h2>
-      <Card className="divide-y divide-border overflow-hidden">{children}</Card>
+    <section className="pb-4 last:pb-0">
+      {title && <SectionLabel right={right}>{title}</SectionLabel>}
+      <Card className="divide-y divide-border px-5 py-1">{children}</Card>
     </section>
   );
 }
 
 function Row({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-4 px-5 py-3.5">
-      <div className="min-w-0 flex-1">
-        <div className="font-medium">{label}</div>
-        {hint && <div className="text-[12px] text-muted">{hint}</div>}
+    <div className="flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+      <div className="min-w-0 flex-1 basis-56">
+        <div className="text-[13px] font-medium">{label}</div>
+        {hint && <div className="text-[12px] text-faint">{hint}</div>}
       </div>
       <div className="shrink-0">{children}</div>
     </div>
@@ -48,7 +49,7 @@ function ShortcutRecorder() {
   return (
     <div className="flex items-center gap-2">
       <button
-        className="h-8 min-w-40 rounded-md border border-border bg-surface px-2.5 text-left text-[12.5px] focus:border-accent"
+        className="h-9 min-w-44 rounded-xl border border-border bg-card px-3 text-left text-[13px] shadow-item transition-colors hover:border-border-strong focus:border-accent focus:outline-none"
         onClick={() => setRecording(true)}
         onBlur={() => setRecording(false)}
         onKeyDown={(e) => {
@@ -142,161 +143,225 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
   const toast = useApp((s) => s.toast);
   const [backup, setBackup] = useState<"export" | "import" | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const settingsTab = useApp((s) => s.settingsTab);
   if (!settings) return null;
+
+  const tab = settingsTab;
+  const group = SETTINGS_GROUPS.find((g) => g.id === tab) ?? SETTINGS_GROUPS[0];
+  const shell = isMac ? "menu bar" : "system tray";
 
   return (
     <>
-      <PageHeader title="Settings" />
-      <Section title="General">
-        <Row label="Appearance">
-          <Select
-            label="Appearance"
-            value={settings.theme}
-            onChange={(v) => void set("theme", v)}
-            options={[
-              { value: "system", label: "Match system" },
-              { value: "light", label: "Light" },
-              { value: "dark", label: "Dark" },
-            ]}
-          />
-        </Row>
-        <Toggle k="launchAtLogin" label="Launch at login" />
-        <Toggle k="startMinimized" label="Start in the background" hint={`Open only the ${isMac ? "menu bar" : "tray"} icon when AltFlip starts.`} />
-        <Toggle k="closeToTray" label={`Keep running when the window is closed`} hint={`AltFlip stays in the ${isMac ? "menu bar" : "system tray"} until you choose Quit.`} />
-        {isMac && <Toggle k="showDockIcon" label="Always show Dock icon" />}
-        <Row label={`${isMac ? "Menu bar" : "Tray"} icon click`}>
-          <Select
-            label="Icon click"
-            value={settings.trayClick}
-            onChange={(v) => void set("trayClick", v)}
-            options={[
-              { value: "popover", label: "Open quick switcher" },
-              { value: "dashboard", label: "Open this window" },
-            ]}
-          />
-        </Row>
-        <Row label="Quick switcher shortcut" hint="Opens the account switcher from anywhere.">
-          <ShortcutRecorder />
-        </Row>
-      </Section>
+      <PageHeader title={group.label} subtitle={group.subtitle} />
+      <div key={tab} className="animate-in">
+        {tab === "general" && (
+          <>
+            <Section title="Appearance">
+              <Row label="Theme" hint="Match your system, or keep AltFlip light or dark.">
+                <Segmented
+                  label="Theme"
+                  value={settings.theme}
+                  onChange={(v) => void set("theme", v)}
+                  options={[
+                    { value: "system", label: "System" },
+                    { value: "light", label: "Light" },
+                    { value: "dark", label: "Dark" },
+                  ]}
+                />
+              </Row>
+            </Section>
+            <Section title="Startup">
+              <Toggle k="launchAtLogin" label="Launch at login" hint={`Start AltFlip in the ${shell} when you log in.`} />
+              <Toggle k="startMinimized" label="Start in the background" hint={`Open only the ${shell} icon when AltFlip starts.`} />
+            </Section>
+            <Section title="Window">
+              <Toggle k="closeToTray" label="Keep running when the window is closed" hint={`AltFlip stays in the ${shell} until you choose Quit.`} />
+              {isMac && <Toggle k="showDockIcon" label="Always show Dock icon" />}
+              <Row label={`${isMac ? "Menu bar" : "Tray"} icon click`} hint="What opens when you click the icon.">
+                <Segmented
+                  label="Icon click"
+                  value={settings.trayClick}
+                  onChange={(v) => void set("trayClick", v)}
+                  options={[
+                    { value: "popover", label: "Quick switcher" },
+                    { value: "dashboard", label: "Dashboard" },
+                  ]}
+                />
+              </Row>
+            </Section>
+            <Section title="Global shortcut">
+              <Row label="Quick switcher" hint="Opens the account switcher from anywhere.">
+                <ShortcutRecorder />
+              </Row>
+            </Section>
+          </>
+        )}
 
-      <Section title="Switching">
-        <Toggle k="warnRunningSessions" label="Warn about running sessions" hint="Ask before switching while a session of that tool is running." />
-        <Row label="Verification and rollback" hint="Every switch is verified. If it fails, the previous account is restored automatically.">
-          <Badge tone="ok">Always on</Badge>
-        </Row>
-        <Row label="Restarting apps" hint="AltFlip always asks before closing an app such as Antigravity.">
-          <Badge tone="ok">Always asks</Badge>
-        </Row>
-      </Section>
+        {tab === "switching" && (
+          <>
+            <Section title="Before switching">
+              <Toggle k="warnRunningSessions" label="Warn about running sessions" hint="Ask before switching while a session of that tool is running." />
+              <Row label="Restarting apps" hint="AltFlip always asks before closing an app such as Antigravity.">
+                <Badge tone="ok">Always asks</Badge>
+              </Row>
+            </Section>
+            <Section title="Safety">
+              <Row label="Verification and rollback" hint="Every switch is verified. If it fails, the previous account is restored automatically.">
+                <Badge tone="ok">Always on</Badge>
+              </Row>
+              <Row label="Recovery snapshot" hint="The current sign-in is saved, encrypted, before every switch.">
+                <Badge tone="ok">Always on</Badge>
+              </Row>
+            </Section>
+            <Section title="Experimental">
+              <Toggle
+                k="experimentalAntigravity"
+                label="Antigravity switching"
+                hint="Switches the Google sign-in shared by the Antigravity app, agy CLI and IDE 2.6+. Running Antigravity apps are restarted after you confirm."
+              />
+            </Section>
+          </>
+        )}
 
-      <Section title="Notifications">
-        <Toggle k="notifications" label="Show notifications" />
-        <Toggle k="notifySwitch" label="Switch results" hint="For switches started from the menu or shortcut." disabled={!settings.notifications} />
-        <Toggle k="notifyUsage" label="Usage warnings" disabled={!settings.notifications} />
-        <Toggle k="notifyAuth" label="Expired sign-ins" disabled={!settings.notifications} />
-      </Section>
+        {tab === "notifications" && (
+          <>
+            <Section>
+              <Toggle k="notifications" label="Show notifications" hint="Turn this off to silence everything below." />
+            </Section>
+            <Section title="Notify me about">
+              <Toggle k="notifySwitch" label="Switch results" hint="For switches started from the menu or shortcut." disabled={!settings.notifications} />
+              <Toggle k="notifyUsage" label="Usage warnings" hint={`When an account passes ${settings.usageThreshold}% of a limit.`} disabled={!settings.notifications} />
+              <Toggle k="notifyAuth" label="Sign-ins that need login" hint="Includes the command to run to sign in again." disabled={!settings.notifications} />
+            </Section>
+          </>
+        )}
 
-      <Section title="Usage monitoring">
-        <Toggle k="usageMonitoring" label="Monitor usage" hint="Shows 5-hour, weekly and per-model limits for every saved account." />
-        <Row label="Check every">
-          <Select
-            label="Refresh interval"
-            value={settings.usageRefreshMinutes}
-            onChange={(v) => void set("usageRefreshMinutes", v)}
-            options={[5, 15, 30, 60, 120].map((m) => ({ value: m, label: m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}` }))}
-          />
-        </Row>
-        <Row label="Warn at">
-          <Select
-            label="Warning threshold"
-            value={settings.usageThreshold}
-            onChange={(v) => void set("usageThreshold", v)}
-            options={[50, 70, 80, 90, 95, 100].map((v) => ({ value: v, label: `${v}% used` }))}
-          />
-        </Row>
-        <Toggle
-          k="liveUsage"
-          label="Live usage from Anthropic and OpenAI"
-          hint="Asks each provider for the same limits Claude Code's /usage and Codex's usage panel show, at most once a minute per account. Logins are sent only to their own provider; expired Claude logins are renewed like Claude Code does."
-        />
-        <Toggle k="showResetCountdowns" label="Show reset countdowns" />
-      </Section>
+        {tab === "usage" && (
+          <>
+            <Section>
+              <Toggle k="usageMonitoring" label="Monitor usage" hint="Shows 5-hour, weekly and per-group limits for every saved account." />
+            </Section>
+            <Section title="Source">
+              <Toggle
+                k="liveUsage"
+                label="Live usage from Anthropic and OpenAI"
+                hint="The same numbers Claude Code's /usage and Codex's usage panel show, checked at most once a minute per account. Antigravity is read from the running app on this computer."
+                disabled={!settings.usageMonitoring}
+              />
+              <Row label="Check in the background every" hint="While the window is open, usage updates every minute.">
+                <Select
+                  label="Refresh interval"
+                  value={settings.usageRefreshMinutes}
+                  onChange={(v) => void set("usageRefreshMinutes", v)}
+                  options={[5, 15, 30, 60, 120].map((m) => ({ value: m, label: m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}` }))}
+                />
+              </Row>
+            </Section>
+            <Section title="Display">
+              <Row label="Warn at" hint="Shown in the menu and, if enabled, as a notification.">
+                <Select
+                  label="Warning threshold"
+                  value={settings.usageThreshold}
+                  onChange={(v) => void set("usageThreshold", v)}
+                  options={[50, 70, 80, 90, 95, 100].map((v) => ({ value: v, label: `${v}% used` }))}
+                />
+              </Row>
+              <Toggle k="showResetCountdowns" label="Show reset countdowns" />
+            </Section>
+          </>
+        )}
 
-      <Section title="Privacy and security">
-        <Row label="Credential storage" hint={overview?.credentialStore.message ?? "Saved sign-ins are encrypted. The key is kept in the system credential store."}>
-          <Badge tone={overview?.credentialStore.available ? "ok" : "danger"}>
-            {overview?.credentialStore.backend} {overview?.credentialStore.available ? "ready" : "unavailable"}
-          </Badge>
-        </Row>
-        <Row label="Backup" hint="Export or restore saved accounts as a passphrase-protected file.">
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => setBackup("export")}>
-              <Download /> Export
-            </Button>
-            <Button size="sm" onClick={() => setBackup("import")}>
-              <Upload /> Restore
-            </Button>
-          </div>
-        </Row>
-        <Row label="Data folder" hint={<span className="selectable">{info?.dataDir}</span>}>
-          <Button size="sm" disabled={!info} onClick={() => info && void revealItemInDir(info.dataDir)}>
-            <FolderOpen /> Show
-          </Button>
-        </Row>
-        <Row label="Reset settings" hint="Restores default preferences. Saved accounts are kept.">
-          <Button size="sm" onClick={() => setConfirmReset(true)}>
-            <RotateCcw /> Reset
-          </Button>
-        </Row>
-      </Section>
+        {tab === "privacy" && (
+          <>
+            <Section title="Credentials">
+              <Row label="Credential storage" hint={overview?.credentialStore.message ?? "Saved sign-ins are encrypted. The key is kept in the system credential store."}>
+                <Badge tone={overview?.credentialStore.available ? "ok" : "danger"}>
+                  {overview?.credentialStore.backend} {overview?.credentialStore.available ? "ready" : "unavailable"}
+                </Badge>
+              </Row>
+            </Section>
+            <Section title="Backups">
+              <Row label="Encrypted backup" hint="Export or restore saved accounts as a passphrase-protected file.">
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => setBackup("export")}>
+                    <Download /> Export
+                  </Button>
+                  <Button size="sm" onClick={() => setBackup("import")}>
+                    <Upload /> Restore
+                  </Button>
+                </div>
+              </Row>
+            </Section>
+            <Section title="Storage">
+              <Row label="Data folder" hint={<span className="selectable break-all">{info?.dataDir}</span>}>
+                <Button size="sm" disabled={!info} onClick={() => info && void revealItemInDir(info.dataDir)}>
+                  <FolderOpen /> Show
+                </Button>
+              </Row>
+              <Row label="Reset settings" hint="Restores default preferences. Saved accounts are kept.">
+                <Button size="sm" variant="danger" onClick={() => setConfirmReset(true)}>
+                  <RotateCcw /> Reset
+                </Button>
+              </Row>
+            </Section>
+          </>
+        )}
 
-      <Section title="Advanced">
-        <Toggle
-          k="experimentalAntigravity"
-          label="Antigravity switching (experimental)"
-          hint="Switches the Google sign-in shared by the Antigravity app, agy CLI and IDE 2.6+. Running Antigravity apps are restarted after you confirm."
-        />
-        {overview?.providers.map((p) => (
-          <div key={p.info.id} className="flex items-start gap-3 px-5 py-3.5">
-            <ProviderIcon id={p.info.id} size={18} className="mt-0.5" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{p.info.name}</span>
-                <Badge tone={compatTone[p.info.compatibility]}>{compatText[p.info.compatibility]}</Badge>
-              </div>
-              <div className="selectable mt-0.5 space-y-0.5 text-[11.5px] text-muted">
-                <div>Version: {p.info.version ?? "unknown"}</div>
-                {p.info.binaryPath && <div className="truncate">Program: {p.info.binaryPath}</div>}
-                {p.info.configPath && <div className="truncate">Config: {p.info.configPath}</div>}
-                <div>Switch mode: {modeShort[p.info.switchMode]}</div>
-                {p.info.compatibilityNote && <div className="text-faint">{p.info.compatibilityNote}</div>}
-              </div>
-            </div>
-          </div>
-        ))}
-        <Row label="Diagnostics" hint="Copies a report without emails, tokens or file contents.">
-          <Button
-            size="sm"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(await api.diagnostics());
-                toast({ kind: "success", text: "Diagnostics copied" });
-              } catch (e) {
-                toast({ kind: "error", text: "Could not copy diagnostics", detail: errorText(e) });
-              }
-            }}
-          >
-            <Copy /> Copy report
-          </Button>
-        </Row>
-      </Section>
+        {tab === "tools" && (
+          <>
+            {overview?.providers.map((p) => (
+              <Section key={p.info.id} title={p.info.name} right={<Badge tone={compatTone[p.info.compatibility]}>{compatText[p.info.compatibility]}</Badge>}>
+                <div className="flex items-center gap-3 py-3.5">
+                  <ProviderIcon id={p.info.id} size={30} />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium">{p.info.installed ? `Version ${p.info.version ?? "unknown"}` : "Not installed"}</div>
+                    <div className="text-[12px] text-faint">{modeShort[p.info.switchMode]}</div>
+                  </div>
+                  <span className="font-mono text-[11px] text-faint">
+                    {p.accounts.length} saved
+                  </span>
+                </div>
+                {p.info.binaryPath && (
+                  <Row label="Program">
+                    <span className="selectable block max-w-[22rem] truncate font-mono text-[11.5px] text-muted">{p.info.binaryPath}</span>
+                  </Row>
+                )}
+                {p.info.configPath && (
+                  <Row label="Config">
+                    <span className="selectable block max-w-[22rem] truncate font-mono text-[11.5px] text-muted">{p.info.configPath}</span>
+                  </Row>
+                )}
+                {p.info.compatibilityNote && <div className="py-3 text-[12px] text-faint">{p.info.compatibilityNote}</div>}
+              </Section>
+            ))}
+            <Section title="Support">
+              <Row label="Diagnostics" hint="Copies a report without emails, tokens or file contents.">
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(await api.diagnostics());
+                      toast({ kind: "success", text: "Diagnostics copied" });
+                    } catch (e) {
+                      toast({ kind: "error", text: "Could not copy diagnostics", detail: errorText(e) });
+                    }
+                  }}
+                >
+                  <Copy /> Copy report
+                </Button>
+              </Row>
+            </Section>
+          </>
+        )}
+      </div>
 
       <BackupDialog mode={backup} onClose={() => setBackup(null)} />
       <Dialog
         open={confirmReset}
         onClose={() => setConfirmReset(false)}
         title="Reset all settings?"
+        icon={<RotateCcw />}
+        tone="danger"
         description="Preferences return to their defaults. Saved accounts, history and backups are not affected."
         footer={
           <>

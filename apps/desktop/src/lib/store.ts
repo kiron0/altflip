@@ -1,3 +1,4 @@
+import type { SettingsTab } from "@/components/settingsNav";
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { api, errorCode, errorText, type Overview, type Progress, type ProviderId, type Settings, type SwitchPlan } from "./api";
@@ -24,6 +25,8 @@ interface State {
   addFor: ProviderId | "any" | null;
   load: (refresh?: boolean) => Promise<void>;
   navigate: (p: Page, focusAccount?: string | null) => void;
+  settingsTab: SettingsTab;
+  setSettingsTab: (t: SettingsTab) => void;
   toast: (t: Omit<Toast, "id">) => void;
   dismiss: (id: number) => void;
   setSetting: <K extends keyof Settings>(k: K, v: Settings[K]) => Promise<void>;
@@ -51,6 +54,8 @@ export const useApp = create<State>((set, get) => ({
   settings: null,
   loading: true,
   page: "dashboard",
+  settingsTab: "general",
+  setSettingsTab: (settingsTab) => set({ settingsTab }),
   focusAccount: null,
   toasts: [],
   switching: {},

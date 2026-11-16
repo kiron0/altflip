@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AccountRow, StateBadge } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, Field, Input, Meter, Select } from "@/components/ui/primitives";
+import { Badge, Card, Dialog, Field, Input, Meter, Segmented, Select } from "@/components/ui/primitives";
 
 const CATEGORIES = ["", "Personal", "Work", "University", "Secondary", "Testing"];
 
@@ -79,7 +79,7 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
         </>
       }
     >
-      <div className="grid grid-cols-[1fr_150px_auto] items-end gap-2">
+      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[1fr_170px_auto]">
         <Field label="Name">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} onBlur={() => label.trim() && label !== account.label && void save({ label })} />
         </Field>
@@ -227,18 +227,28 @@ export function Accounts() {
           </Button>
         }
       />
-      <div className="flex items-center gap-3">
-        <div className="relative w-64">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative w-full min-w-0 sm:w-64">
           <Search className="pointer-events-none absolute top-2.5 left-3.5 size-4 text-faint" />
           <Input className="rounded-full pl-9" placeholder="Search accounts" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search accounts" />
         </div>
-        <div className="seg">
-          {(["all", ...(overview?.providers.map((p) => p.info.id) ?? [])] as const).map((id) => (
-            <button key={id} aria-pressed={filter === id} onClick={() => setFilter(id as ProviderId | "all")}>
-              {id === "all" ? "All" : overview?.providers.find((p) => p.info.id === id)?.info.name}
-            </button>
-          ))}
-        </div>
+        <Segmented
+          label="Filter by tool"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "all" as ProviderId | "all", label: "All" },
+            ...(overview?.providers ?? []).map((p) => ({
+              value: p.info.id as ProviderId | "all",
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <ProviderIcon id={p.info.id} size={16} />
+                  {p.info.name}
+                </span>
+              ),
+            })),
+          ]}
+        />
       </div>
       <div className="space-y-4">
         {providers.map((p) => {

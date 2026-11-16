@@ -8,7 +8,7 @@ import { ProviderIcon } from "@/components/ProviderIcon";
 import { RecoveryBanner } from "@/components/Dialogs";
 import { StatusBadge } from "@/components/labels";
 import { Button } from "@/components/ui/button";
-import { Card, Dialog } from "@/components/ui/primitives";
+import { Card, Dialog, Segmented } from "@/components/ui/primitives";
 
 export function ActivityPage() {
   const overview = useApp((s) => s.overview);
@@ -48,13 +48,16 @@ export function ActivityPage() {
     <>
       <PageHeader title="Activity" subtitle="Switch history and account events on this device. No tokens or passwords are recorded." />
       <RecoveryBanner />
-      <div className="seg self-start">
-        {(["switches", "log"] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)} aria-pressed={tab === t}>
-            {t === "switches" ? "Switches" : "Event log"}
-          </button>
-        ))}
-      </div>
+      <Segmented
+        label="Activity view"
+        className="self-start"
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: "switches" as const, label: "Switches" },
+          { value: "log" as const, label: "Event log" },
+        ]}
+      />
       {tab === "switches" ? (
         <Card className="divide-y divide-border">
           {history.length === 0 && <div className="px-4 py-6 text-center text-[12.5px] text-muted">No switches yet.</div>}

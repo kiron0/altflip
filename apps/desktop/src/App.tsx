@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, BarChart3, LayoutDashboard, Plus, RefreshCw, Settings as Gear, Users } from "lucide-react";
+import { Activity, ArrowLeft, BarChart3, LayoutDashboard, Plus, RefreshCw, Settings as Gear, Users } from "lucide-react";
 import { api, type AppInfo } from "@/lib/api";
 import { useApp, wireEvents, type Page } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ import { UsagePage } from "@/pages/Usage";
 import { ActivityPage } from "@/pages/Activity";
 import { SettingsPage } from "@/pages/Settings";
 import { Onboarding } from "@/pages/Onboarding";
+import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
 const NAV: { page: Page; label: string; icon: React.ReactNode; hint: string }[] = [
   { page: "dashboard", label: "Dashboard", icon: <LayoutDashboard />, hint: "Every tool and its active account" },
@@ -46,7 +47,22 @@ function SummaryCard({ isMac }: { isMac: boolean }) {
 }
 
 export function App() {
-  const { page, navigate, load, settings, loading, overview, openAdd } = useApp();
+  const { page, navigate, load, settings, loading, overview, openAdd, settingsTab, setSettingsTab } = useApp();
+  const [lastPage, setLastPage] = useState<Page>("dashboard");
+  useEffect(() => {
+    if (page !== "settings") {
+      setLastPage(page);
+      return;
+    }
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || document.querySelector("[role='dialog'], [role='listbox']")) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      navigate(lastPage);
+    };
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
+  }, [page, lastPage, navigate]);
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const isMac = info?.os === "macos";
@@ -116,7 +132,7 @@ export function App() {
           onClick={() => openAdd("any")}
           className="flex h-8.5 items-center gap-2 rounded-full bg-brand px-4 text-[13px] font-medium text-white shadow-brand transition-[filter] hover:brightness-110"
         >
-          <Plus className="size-4" /> Add account
+          <Plus className="size-4" /> <span className="max-[520px]:hidden">Add account</span>
         </button>
       </header>
 
@@ -124,39 +140,62 @@ export function App() {
         <aside className="app-nav">
           <div data-tauri-drag-region className="flex items-center gap-2.5 px-3 pb-4">
             <img src="/icon.png" alt="" className="size-7 rounded-[8px] drop-shadow-[0_3px_6px_rgb(0_0_0/0.25)]" draggable={false} />
-            <span data-tauri-drag-region className="font-display text-[19px] font-medium">
+            <span data-tauri-drag-region className="brand-name font-display text-[19px] font-medium">
               AltFlip
             </span>
           </div>
-          <nav aria-label="Main" className="flex-1 overflow-auto">
-            <ul className="space-y-1">
-              {NAV.map((n) => (
-                <li key={n.page}>
-                  <button
-                    type="button"
-                    title={n.hint}
-                    onClick={() => navigate(n.page)}
-                    aria-current={page === n.page ? "page" : undefined}
-                    className="nav-item"
-                  >
-                    {n.icon}
-                    <span className="flex-1">{n.label}</span>
-                    {n.page === "activity" && attention && <span className="size-2 rounded-full bg-warn" aria-label="Needs attention" />}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          {page === "settings" ? (
+            <nav aria-label="Settings" className="flex-1 overflow-auto">
+              <button type="button" onClick={() => navigate(lastPage)} title="Back (Esc)" className="nav-item">
+                <ArrowLeft />
+                <span className="nav-label flex-1">Back to app</span>
+              </button>
+              <div className="nav-heading">Settings</div>
+              <ul className="space-y-1">
+                {SETTINGS_GROUPS.map((g) => (
+                  <li key={g.id}>
+                    <button
+                      type="button"
+                      title={g.label}
+                      onClick={() => setSettingsTab(g.id)}
+                      aria-current={settingsTab === g.id ? "page" : undefined}
+                      className="nav-item"
+                    >
+                      <g.icon />
+                      <span className="nav-label flex-1">{g.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : (
+            <nav aria-label="Main" className="flex-1 overflow-auto">
+              <ul className="space-y-1">
+                {NAV.map((n) => (
+                  <li key={n.page}>
+                    <button
+                      type="button"
+                      title={n.hint}
+                      onClick={() => navigate(n.page)}
+                      aria-current={page === n.page ? "page" : undefined}
+                      className="nav-item"
+                    >
+                      {n.icon}
+                      <span className="nav-label flex-1">{n.label}</span>
+                      {n.page === "activity" && attention && <span className="size-2 rounded-full bg-warn" aria-label="Needs attention" />}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          )}
           <div className="space-y-2 pt-2">
-            <button
-              type="button"
-              onClick={() => navigate("settings")}
-              aria-current={page === "settings" ? "page" : undefined}
-              className="nav-item"
-            >
-              <Gear />
-              <span className="flex-1">Settings</span>
-            </button>
+            {page !== "settings" && (
+              <button type="button" title="Settings" onClick={() => navigate("settings")} className="nav-item">
+                <Gear />
+                <span className="nav-label flex-1">Settings</span>
+              </button>
+            )}
             <SummaryCard isMac={isMac} />
           </div>
         </aside>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { AlertTriangle, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { api, errorText, type ApiError, type ProviderId, type ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -56,6 +56,43 @@ export function SwitchConfirmDialog() {
 }
 
 const CATEGORIES = ["", "Personal", "Work", "University", "Secondary", "Testing"];
+
+const AGY_STEPS: { title: string; text: string; done: RegExp }[] = [
+  { title: "Save the current account", text: "AltFlip keeps your current Antigravity account so you can switch back to it later.", done: /Saved the current|Closing Antigravity|Signed Antigravity out/ },
+  { title: "Close and sign out Antigravity", text: "Antigravity closes and asks first if you have unsaved files. Its sign-in is cleared.", done: /Signed Antigravity out/ },
+  { title: "Choose Sign in with Google", text: "Antigravity reopens on its welcome screen. Click Sign in with Google.", done: /choose Sign in with Google/ },
+  { title: "Pick the other account in your browser", text: "Your browser opens Google's sign-in. Choose the account you want to add and allow access.", done: /Signed in as/ },
+  { title: "AltFlip saves it", text: "As soon as Antigravity shows the new account, AltFlip saves it and makes it active.", done: /Signed in as/ },
+];
+
+function AntigravitySteps({ lines, running }: { lines: string[]; running: boolean }) {
+  const text = lines.join("\n");
+  const current = running ? AGY_STEPS.findIndex((s) => !s.done.test(text)) : -1;
+  return (
+    <ol className="space-y-0.5 rounded-2xl border border-border bg-card p-2 shadow-item">
+      {AGY_STEPS.map((s, i) => {
+        const done = s.done.test(text);
+        const now = i === current;
+        return (
+          <li key={s.title} className={cn("flex gap-3 rounded-xl px-2.5 py-2 transition-colors", now && "bg-accent-soft")}>
+            <span
+              className={cn(
+                "mt-px flex size-5 shrink-0 items-center justify-center rounded-full font-mono text-[10.5px] font-semibold",
+                done ? "bg-ok text-white" : now ? "bg-accent text-white" : "bg-surface-3 text-muted",
+              )}
+            >
+              {done ? <Check className="size-3" /> : i + 1}
+            </span>
+            <span className="min-w-0">
+              <span className={cn("block text-[13px] font-medium", !done && !now && running && "text-muted")}>{s.title}</span>
+              <span className="block text-[12px] text-faint">{s.text}</span>
+            </span>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 function LinkifiedLine({ line }: { line: string }) {
   const m = line.match(/https?:\/\/\S+/);
@@ -219,7 +256,7 @@ export function AddAccountDialog() {
                   title="Sign in with another account"
                   text={
                     state.info.capabilities.loginReplacesCurrent
-                      ? `AltFlip saves your current ${state.info.name} account, opens ${state.info.name}, and saves the new account as soon as you sign in to it there. The new account becomes active.`
+                      ? `Signs ${state.info.name} out and reopens it so you can sign in with Google in your browser. Your current account is saved first.`
                       : `Runs ${state.info.id === "codex" ? "codex login" : "claude auth login"} in a private, temporary profile. Your current ${state.info.name} sign-in stays as it is.`
                   }
                 />
@@ -237,7 +274,8 @@ export function AddAccountDialog() {
                 }
               />
             </div>
-            <div className="grid grid-cols-[1fr_150px] gap-3">
+            {state.info.id === "antigravity" && method === "login" && <AntigravitySteps lines={lines} running={!!loginId} />}
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_170px]">
               <Field label="Name">
                 <Input value={label} placeholder={live?.identity.email?.split("@")[0] ?? "Work"} onChange={(e) => setLabel(e.target.value)} disabled={busy} />
               </Field>

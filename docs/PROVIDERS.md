@@ -27,7 +27,7 @@
 
 ## Antigravity (experimental)
 
-Off until enabled in Settings › Advanced.
+Off until enabled in Settings › Switching.
 
 - Detected through Antigravity.app / Antigravity IDE.app (macOS), `%LOCALAPPDATA%\Programs` (Windows), `/usr/share/antigravity` or `/opt/Antigravity` (Linux), the `agy` command, and `~/.gemini/antigravity`.
 - Sign-in state:

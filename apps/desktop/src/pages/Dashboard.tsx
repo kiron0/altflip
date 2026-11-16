@@ -136,7 +136,7 @@ export function Dashboard() {
           credential store can be used. {overview.credentialStore.message}
         </div>
       )}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Tools detected" value={`${overview.providers.filter((p) => p.info.installed).length} of ${overview.providers.length}`} />
         <Stat label="Saved accounts" value={accounts} />
         <Stat label="Active selections" value={overview.providers.filter((p) => p.activeAccountId).length} />
