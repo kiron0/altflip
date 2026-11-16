@@ -43,3 +43,13 @@ Off until enabled in Settings › Switching.
 - Open agent conversations do not move to the new account.
 
 This integration was informed by reading [agy-switch](https://github.com/anglee0323/agy-switch). No code was copied; that project uses a non-commercial license.
+
+## OpenCode
+
+- Version: OpenCode 2.x (verified with `opencode v2.2.5`). OpenCode 1.x keeps sign-ins in `auth.json` and is reported as unsupported.
+- Where sign-ins live: OpenCode 2 imports `auth.json` once (migration `20260805200742_import_legacy_credentials`) into the `credential` table of `$XDG_DATA_HOME/opencode/opencode.db` (default `~/.local/share/opencode/opencode.db`). Each integration can hold several credentials; one has `active = 1`.
+- What AltFlip stores: only which credential to activate per integration. Secret values stay in OpenCode and are never read.
+- Accounts: Add account › Import every sign-in stored in OpenCode adds one account per credential of each integration that has more than one (for example two OpenCode Console logins). If no integration has more than one, the single current selection is shown.
+- Switching: `POST /api/credential/:credentialID/activate` on OpenCode's background service, found in `$XDG_STATE_HOME/opencode/service.json` (default `~/.local/state/opencode/service.json`, Basic auth user `opencode`). Only loopback URLs are used. AltFlip then reads the `credential` table read-only to verify the switch. If the service is not running, AltFlip asks you to open OpenCode or run any `opencode` command.
+- Applies: instantly. OpenCode publishes a global `credential.switched` event on activate and its provider registry reloads on it, so open sessions on the background service use the new sign-in for their next request. Sessions started with `--standalone` run their own server and keep the old sign-in until restarted.
+- Usage: not available.

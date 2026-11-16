@@ -58,7 +58,7 @@ const providers: ProviderState[] = [
       compatibility: "supported",
       compatibilityNote: null,
       experimental: false,
-      capabilities: caps(true, "no"),
+      capabilities: caps(true, "conditional"),
       processes: [{ pid: 1, name: "claude", path: null, kind: "cli" }],
       switchMode: "new-sessions",
     },
@@ -108,7 +108,7 @@ const providers: ProviderState[] = [
       compatibility: "experimental",
       compatibilityNote: "Experimental: switches the shared Antigravity sign-in.",
       experimental: true,
-      capabilities: caps(true, "no", true),
+      capabilities: caps(true, "conditional", true),
       processes: [{ pid: 2, name: "Antigravity", path: "/Applications/Antigravity.app/Contents/MacOS/Antigravity", kind: "app" }],
       switchMode: "restart-required",
     },
@@ -119,6 +119,29 @@ const providers: ProviderState[] = [
     liveError: null,
     switchingEnabled: false,
     switchingDisabledReason: "Antigravity switching is experimental. Turn it on in Settings › Switching to use it.",
+  },
+  {
+    info: {
+      id: "opencode",
+      name: "OpenCode",
+      installed: true,
+      version: "opencode v2.2.5",
+      binaryPath: "/Users/dev/.opencode/bin/opencode",
+      configPath: "/Users/dev/.local/share/opencode",
+      compatibility: "supported",
+      compatibilityNote: null,
+      experimental: false,
+      capabilities: caps(false, "no", true),
+      processes: [],
+      switchMode: "immediate",
+    },
+    accounts: [acct("o1", "opencode", "THK", "", ""), acct("o2", "opencode", "API key", "", "")],
+    activeAccountId: "o1",
+    activationState: "verified",
+    live: null,
+    liveError: null,
+    switchingEnabled: true,
+    switchingDisabledReason: null,
   },
 ];
 
@@ -195,6 +218,8 @@ export function installMocks() {
           return overview();
         case "get_settings":
           return settings;
+        case "import_accounts":
+          return [];
         case "claude_status_line":
           return statusLine;
         case "set_claude_status_line":

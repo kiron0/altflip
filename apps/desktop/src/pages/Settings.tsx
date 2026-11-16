@@ -223,7 +223,7 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
                   onChange={(v) => void set("trayClick", v)}
                   options={[
                     { value: "popover", label: "Quick switcher" },
-                    { value: "dashboard", label: "Dashboard" },
+                    { value: "dashboard", label: "Overview" },
                   ]}
                 />
               </Row>

@@ -16,7 +16,7 @@ import { Onboarding } from "@/pages/Onboarding";
 import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
 const NAV: { page: Page; label: string; icon: React.ReactNode; hint: string }[] = [
-  { page: "dashboard", label: "Dashboard", icon: <DashboardIcon />, hint: "Every tool and its active account" },
+  { page: "dashboard", label: "Overview", icon: <DashboardIcon />, hint: "Every tool and its active account" },
   { page: "accounts", label: "Accounts", icon: <AccountsIcon />, hint: "All saved accounts" },
   { page: "usage", label: "Usage", icon: <UsageIcon />, hint: "Provider-reported usage" },
   { page: "activity", label: "Activity", icon: <ActivityIcon />, hint: "Switch history and events" },

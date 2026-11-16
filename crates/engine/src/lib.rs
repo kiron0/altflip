@@ -31,6 +31,7 @@ pub fn sign_in_hint(provider: ProviderId) -> &'static str {
         ProviderId::Claude => "Run claude auth login in Terminal to sign in first.",
         ProviderId::Codex => "Run codex login in Terminal to sign in first.",
         ProviderId::Antigravity => "Open Antigravity and sign in first.",
+        ProviderId::OpenCode => "Run opencode auth login in Terminal to sign in first.",
     }
 }
 
@@ -225,11 +226,7 @@ impl Engine {
     }
 
     fn raw_capture(&self, p: &Arc<dyn Provider>) -> Result<Snapshot> {
-        let mut resources = Vec::new();
-        for (loc, role) in p.locators() {
-            resources.push(p.ctx().io.capture(loc, role)?);
-        }
-        Ok(Snapshot::new(p.id(), Identity::default(), resources))
+        p.raw_capture()
     }
 
     pub fn settings(&self) -> Result<Settings> {
@@ -502,6 +499,28 @@ impl Engine {
         Ok(row)
     }
 
+    pub fn import_accounts(&self, provider: ProviderId) -> Result<Vec<AccountRow>> {
+        let p = self.provider(provider)?;
+        let _guard = self.lock(provider)?;
+        let snaps = p.import()?;
+        let live_key = p.capture()?.map(|l| l.identity.key);
+        let mut out = Vec::new();
+        for snap in snaps {
+            let health = p.health(&snap);
+            let (row, created) = self.upsert(&snap, None, None, health)?;
+            let db = self.db();
+            if live_key.as_deref() == Some(snap.identity.key.as_str()) {
+                db.set_active(provider, &row.id, "verified", true)?;
+            }
+            if created {
+                db.log(Some(provider), Some(&row.id), "added", &format!("Imported {} from {provider}", row.label))?;
+            }
+            drop(db);
+            out.push(row);
+        }
+        Ok(out)
+    }
+
     pub fn login_new(
         &self,
         provider: ProviderId,
@@ -610,7 +629,11 @@ impl Engine {
         let live_key = p.capture().ok().flatten().map(|s| s.identity.key);
         let already_active = live_key.as_deref() == Some(acct.account_identifier.as_str());
         let restart: Vec<String> = p.restart_targets(&info.processes).into_iter().map(display_name).collect();
-        let running_sessions = info.processes.iter().filter(|p| p.kind == ProcessKind::Cli).count();
+        let running_sessions = if info.switch_mode == SwitchMode::Immediate {
+            0
+        } else {
+            info.processes.iter().filter(|p| p.kind == ProcessKind::Cli).count()
+        };
         let mut warnings = Vec::new();
         if running_sessions > 0 {
             warnings.push(format!(
@@ -688,7 +711,11 @@ impl Engine {
                 restart.into_iter().map(display_name).collect::<Vec<_>>().join(" and ")
             )));
         }
-        let running_sessions = info.processes.iter().filter(|p| p.kind == ProcessKind::Cli).count();
+        let running_sessions = if info.switch_mode == SwitchMode::Immediate {
+            0
+        } else {
+            info.processes.iter().filter(|p| p.kind == ProcessKind::Cli).count()
+        };
 
         let from = live.as_ref().and_then(|l| self.db().account_by_identity(provider, &l.identity.key).ok().flatten());
         if let (Some(l), Some(f)) = (&live, &from) {
@@ -1156,7 +1183,7 @@ impl Engine {
                     };
                     snap.and_then(|s| altflip_providers::codex::live_usage(&s))
                 }
-                ProviderId::Antigravity => continue,
+                ProviderId::Antigravity | ProviderId::OpenCode => continue,
             };
             match res {
                 Ok(mut r) => {

@@ -57,9 +57,11 @@ function LiveLine({ p }: { p: ProviderState }) {
 function ProviderCard({ p }: { p: ProviderState }) {
   const openAdd = useApp((s) => s.openAdd);
   const navigate = useApp((s) => s.navigate);
+  const seeAll = useApp((s) => s.seeAll);
   const cli = p.info.processes.filter((x) => x.kind === "cli").length;
   const apps = p.info.processes.filter((x) => x.kind === "app" || x.kind === "ide").length;
   const active = activeAccount(p);
+  const featured = active ?? p.accounts[0];
   const running = [cli && plural(cli, "running session"), apps && plural(apps, "open app")].filter(Boolean).join(", ");
   return (
     <Card className="flex flex-col">
@@ -86,31 +88,91 @@ function ProviderCard({ p }: { p: ProviderState }) {
         {p.activationState === "drifted" && active && (
           <p className="px-2 text-[12px] text-warn">Selected: {active.label}. The sign-in was changed outside AltFlip.</p>
         )}
-        {p.accounts.length === 0 ? (
-          <button
-            onClick={() => openAdd(p.info.id)}
-            className="mx-2 mb-1 rounded-2xl border border-dashed border-border-strong px-3 py-5 text-center text-[13px] text-muted hover:bg-surface-2"
-          >
-            No saved accounts yet. Add one.
-          </button>
-        ) : (
-          <div>
-            {p.accounts.map((a) => (
-              <AccountRow key={a.id} account={a} provider={p} onOpen={() => navigate("accounts", a.id)} />
-            ))}
-          </div>
-        )}
+        <div>
+          {featured && <AccountRow account={featured} provider={p} onOpen={() => navigate("accounts", featured.id)} />}
+        </div>
         {!p.switchingEnabled && p.switchingDisabledReason && p.accounts.length > 0 && (
           <p className="px-2 pb-1 text-[11.5px] text-faint">{p.switchingDisabledReason}</p>
         )}
+        <button
+          type="button"
+          onClick={() => (p.accounts.length > 1 ? seeAll(p.info.id) : openAdd(p.info.id))}
+          className="mx-2 mb-1 mt-auto flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-text"
+        >
+          {p.accounts.length > 1 ? (
+            <>
+              See all {p.accounts.length} accounts <ArrowRight className="size-3.5" />
+            </>
+          ) : (
+            <>
+              <Plus className="size-3.5" /> Add another {p.info.name} account
+            </>
+          )}
+        </button>
       </div>
     </Card>
+  );
+}
+
+function EmptyOverview() {
+  const overview = useApp((s) => s.overview);
+  const openAdd = useApp((s) => s.openAdd);
+  const detected = (overview?.providers ?? []).filter((p) => p.info.installed);
+  const missing = (overview?.providers ?? []).filter((p) => !p.info.installed);
+  return (
+    <div className="flex min-h-[calc(100dvh-96px)] flex-col items-center justify-center px-6 text-center">
+      <div className="relative mb-7 flex items-center justify-center">
+        <div className="absolute size-40 rounded-full bg-accent-soft blur-2xl" aria-hidden />
+        <div className="relative flex -space-x-3">
+          {(detected.length ? detected : overview?.providers ?? []).map((p, i) => (
+            <span
+              key={p.info.id}
+              className="rounded-[14px] ring-4 ring-[var(--window)]"
+              style={{ transform: `translateY(${i % 2 ? 6 : -6}px) rotate(${(i - 1.5) * 6}deg)` }}
+            >
+              <ProviderIcon id={p.info.id} size={52} />
+            </span>
+          ))}
+        </div>
+      </div>
+      <h1 className="font-display text-[26px] font-semibold tracking-tight">Add your first account</h1>
+      <p className="mt-2 max-w-[440px] text-[13.5px] leading-relaxed text-muted">
+        Save each AI coding account once, then switch Claude Code, Codex, Antigravity and OpenCode between them in a click.
+        AltFlip uses each tool's own sign-in and never asks for your password.
+      </p>
+      <Button variant="primary" className="mt-6" onClick={() => openAdd("any")}>
+        <Plus /> Add account
+      </Button>
+      {detected.length > 0 && (
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-2">
+          <span className="label-mono text-faint">Found on this Mac</span>
+          {detected.map((p) => (
+            <button
+              key={p.info.id}
+              type="button"
+              onClick={() => openAdd(p.info.id)}
+              className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-[12px] text-muted transition-colors hover:border-border-strong hover:text-text"
+            >
+              <ProviderIcon id={p.info.id} size={14} />
+              {p.info.name}
+            </button>
+          ))}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <p className="mt-3 flex items-center gap-1.5 text-[11.5px] text-faint">
+          <TerminalSquare className="size-3.5" />
+          Not found: {missing.map((m) => m.info.name).join(", ")}
+        </p>
+      )}
+    </div>
   );
 }
 
 export function Dashboard() {
   const overview = useApp((s) => s.overview);
   const navigate = useApp((s) => s.navigate);
+  const openAdd = useApp((s) => s.openAdd);
   const [recent, setRecent] = useState<SwitchRecord[]>([]);
 
   useEffect(() => {
@@ -118,17 +180,20 @@ export function Dashboard() {
   }, [overview?.generatedAt]);
 
   if (!overview) return null;
-  const shown = overview.providers.filter((p) => p.info.installed || p.accounts.length > 0);
+  const shown = overview.providers.filter((p) => p.accounts.length > 0);
   const missing = overview.providers.filter((p) => !p.info.installed && p.accounts.length === 0);
+  const unsaved = overview.providers.filter((p) => p.info.installed && p.accounts.length === 0);
   const accounts = overview.providers.reduce((n, p) => n + p.accounts.length, 0);
   const attention =
     overview.incomplete.length +
     overview.providers.filter((p) => p.activationState === "drifted" || p.activationState === "signed-out").length +
     overview.providers.reduce((n, p) => n + p.accounts.filter((a) => a.health === "expired" || a.health === "needs-reauth").length, 0);
 
+  if (accounts === 0 && overview.incomplete.length === 0) return <EmptyOverview />;
+
   return (
     <>
-      <PageHeader title="Dashboard" subtitle="Your AI coding accounts and which one each tool uses." />
+      <PageHeader title="Overview" subtitle="Your AI coding accounts and which one each tool uses." />
       <RecoveryBanner />
       {!overview.credentialStore.available && (
         <div className="rounded-[20px] border border-danger/40 bg-danger-soft px-5 py-4 text-[12.5px]">
@@ -147,6 +212,23 @@ export function Dashboard() {
           <ProviderCard key={p.info.id} p={p} />
         ))}
       </div>
+      {unsaved.length > 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-faint">
+          <span>No accounts yet for</span>
+          {unsaved.map((p) => (
+            <button
+              key={p.info.id}
+              type="button"
+              onClick={() => openAdd(p.info.id)}
+              className="flex items-center gap-1.5 rounded-full border border-border bg-surface px-2.5 py-1 text-muted transition-colors hover:border-border-strong hover:text-text"
+            >
+              <ProviderIcon id={p.info.id} size={14} />
+              {p.info.name}
+              <Plus className="size-3" />
+            </button>
+          ))}
+        </div>
+      )}
       {missing.length > 0 && (
         <p className="mt-3 flex items-center gap-1.5 text-[12px] text-faint">
           <TerminalSquare className="size-3.5" />

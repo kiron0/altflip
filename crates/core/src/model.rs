@@ -9,16 +9,20 @@ pub enum ProviderId {
     Codex,
     #[serde(rename = "antigravity")]
     Antigravity,
+    #[serde(rename = "opencode")]
+    OpenCode,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 3] = [ProviderId::Claude, ProviderId::Codex, ProviderId::Antigravity];
+    pub const ALL: [ProviderId; 4] =
+        [ProviderId::Claude, ProviderId::Codex, ProviderId::Antigravity, ProviderId::OpenCode];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             ProviderId::Claude => "claude-code",
             ProviderId::Codex => "codex",
             ProviderId::Antigravity => "antigravity",
+            ProviderId::OpenCode => "opencode",
         }
     }
 
@@ -27,6 +31,7 @@ impl ProviderId {
             ProviderId::Claude => "Claude Code",
             ProviderId::Codex => "Codex",
             ProviderId::Antigravity => "Antigravity",
+            ProviderId::OpenCode => "OpenCode",
         }
     }
 

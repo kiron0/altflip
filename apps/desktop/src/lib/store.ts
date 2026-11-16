@@ -19,6 +19,8 @@ interface State {
   loading: boolean;
   page: Page;
   focusAccount: string | null;
+  accountsFilter: ProviderId | null;
+  seeAll: (p: ProviderId) => void;
   toasts: Toast[];
   switching: Partial<Record<ProviderId, Progress>>;
   confirm: SwitchPlan | null;
@@ -57,6 +59,8 @@ export const useApp = create<State>((set, get) => ({
   settingsTab: "general",
   setSettingsTab: (settingsTab) => set({ settingsTab }),
   focusAccount: null,
+  accountsFilter: null,
+  seeAll: (p) => set({ page: "accounts", focusAccount: null, accountsFilter: p }),
   toasts: [],
   switching: {},
   confirm: null,

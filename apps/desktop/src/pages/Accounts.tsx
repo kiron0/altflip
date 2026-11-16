@@ -206,6 +206,14 @@ export function Accounts() {
     }
   }, [focus, navigate]);
 
+  const accountsFilter = useApp((s) => s.accountsFilter);
+  useEffect(() => {
+    if (accountsFilter) {
+      setFilter(accountsFilter);
+      useApp.setState({ accountsFilter: null });
+    }
+  }, [accountsFilter]);
+
   const providers = useMemo(
     () => (overview?.providers ?? []).filter((p) => (p.info.installed || p.accounts.length) && (filter === "all" || p.info.id === filter)),
     [overview, filter],

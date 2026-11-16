@@ -83,6 +83,19 @@ pub async fn switch_account(app: AppHandle, account_id: String, confirm_restart:
 }
 
 #[tauri::command]
+pub async fn import_accounts(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    provider_id: String,
+) -> Result<Vec<AccountRow>> {
+    let engine = state.engine.clone();
+    let p = provider(&provider_id)?;
+    let rows = blocking(move || engine.import_accounts(p)).await?;
+    broadcast_with(&app, true);
+    Ok(rows)
+}
+
+#[tauri::command]
 pub async fn save_current(
     state: State<'_, AppState>,
     app: AppHandle,

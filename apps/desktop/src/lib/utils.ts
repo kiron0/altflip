@@ -103,6 +103,8 @@ export function signInHint(provider: ProviderId): string {
       return "Run codex login in Terminal to sign in first.";
     case "antigravity":
       return "Open Antigravity and sign in first.";
+    case "opencode":
+      return "Run opencode auth login in Terminal to sign in first.";
   }
 }
 

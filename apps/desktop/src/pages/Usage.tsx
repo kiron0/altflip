@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Info, RefreshCw } from "lucide-react";
 import { api, errorText, type ProviderState, type UsageRow } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn, countdown, relativeTime } from "@/lib/utils";
@@ -26,6 +26,14 @@ function resetText(iso: string | null | undefined, now: number) {
   if (t - now < 86400000) return `Resets in ${countdown(iso, now)}`;
   const d = new Date(t);
   return `Resets ${d.toLocaleDateString([], { weekday: "short" })} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function usageUnsupported(p: ProviderState) {
+  return p.info.capabilities.usageMonitoring === "no";
+}
+
+function unsupportedText(p: ProviderState) {
+  return `${p.info.name} doesn't report usage limits to other apps, so AltFlip can't show them. Switching accounts still works.`;
 }
 
 function emptyText(p: ProviderState) {
@@ -102,6 +110,17 @@ export function UsagePage() {
     try {
       await api.refreshUsage();
       await load(false);
+      if (!quiet) {
+        const none = (useApp.getState().overview?.providers ?? []).filter((p) => p.accounts.length > 0 && usageUnsupported(p));
+        if (none.length) {
+          const names = none.map((p) => p.info.name).join(" and ");
+          toast({
+            kind: "info",
+            text: `Usage isn't available for ${names}`,
+            detail: `${names} ${none.length === 1 ? "doesn't" : "don't"} report usage limits, so AltFlip can't show them. Switching accounts still works.`,
+          });
+        }
+      }
     } catch (e) {
       if (!quiet) toast({ kind: "error", text: "Could not refresh usage", detail: errorText(e) });
     } finally {
@@ -156,6 +175,12 @@ export function UsagePage() {
               <ProviderIcon id={p.info.id} size={20} />
               <span className="font-display text-[15px] font-semibold">{p.info.name}</span>
             </div>
+            {usageUnsupported(p) ? (
+              <div className="flex items-start gap-2.5 px-5 py-4 text-[13px] text-muted">
+                <Info className="mt-0.5 size-3.5 shrink-0 text-faint" />
+                <span>{unsupportedText(p)}</span>
+              </div>
+            ) : (
             <div className="divide-y divide-border">
               {p.accounts.length === 0 && <p className="px-5 py-4 text-[13px] text-muted">No saved accounts.</p>}
               {p.accounts.map((a) => (
@@ -185,6 +210,7 @@ export function UsagePage() {
                   </div>
                 ))}
             </div>
+            )}
           </Card>
         );
       })}
