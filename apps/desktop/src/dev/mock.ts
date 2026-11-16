@@ -186,6 +186,7 @@ const overview = (): Overview => ({
 
 export function installMocks() {
   mockWindows(new URLSearchParams(location.search).get("surface") === "quick" ? "quick" : "main");
+  let statusLine = { installed: false, scriptPath: "~/.claude/altflip-status.sh", chainedCommand: null as string | null, lastReadingAt: null as string | null };
   mockIPC(
     async (cmd, raw) => {
       const args = (raw ?? {}) as Record<string, unknown>;
@@ -194,6 +195,11 @@ export function installMocks() {
           return overview();
         case "get_settings":
           return settings;
+        case "claude_status_line":
+          return statusLine;
+        case "set_claude_status_line":
+          statusLine = { ...statusLine, installed: !!args.on, lastReadingAt: args.on ? new Date().toISOString() : null };
+          return statusLine;
         case "set_setting":
           settings = { ...settings, [args.key as string]: args.value };
           if (args.key === "experimentalAntigravity") {

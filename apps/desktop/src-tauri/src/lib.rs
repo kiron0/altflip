@@ -306,6 +306,8 @@ pub fn run() {
             commands::resolve_incomplete,
             commands::undo_switch,
             commands::refresh_usage,
+            commands::claude_status_line,
+            commands::set_claude_status_line,
             commands::get_settings,
             commands::set_setting,
             commands::reset_settings,

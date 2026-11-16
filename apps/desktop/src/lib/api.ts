@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export type StatusLineState = {
+  installed: boolean;
+  scriptPath: string;
+  chainedCommand: string | null;
+  lastReadingAt: string | null;
+};
+
 export type ProviderId = "claude-code" | "codex" | "antigravity";
 export type Compatibility = "supported" | "experimental" | "untested" | "unsupported" | "not-installed";
 export type SwitchMode = "immediate" | "new-sessions" | "restart-required" | "manual" | "unsupported";
@@ -245,6 +252,8 @@ export const api = {
     invoke<void>("resolve_incomplete", { operationId, action }),
   undoSwitch: (operationId: string) => invoke<void>("undo_switch", { operationId }),
   refreshUsage: () => invoke<UsageRow[]>("refresh_usage"),
+  claudeStatusLine: () => invoke<StatusLineState>("claude_status_line"),
+  setClaudeStatusLine: (on: boolean) => invoke<StatusLineState>("set_claude_status_line", { on }),
   settings: () => invoke<Settings>("get_settings"),
   setSetting: <K extends keyof Settings>(key: K, value: Settings[K]) => invoke<Settings>("set_setting", { key, value }),
   resetSettings: () => invoke<Settings>("reset_settings"),

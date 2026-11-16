@@ -12,6 +12,7 @@ use altflip_core::{
     ProviderInfo, Result, SwitchMode,
 };
 use altflip_database::{NewAccount, RecoveryRow, Store};
+pub use altflip_providers::claude_status::StatusLineState;
 use altflip_providers::{Ctx, Provider};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -1172,6 +1173,27 @@ impl Engine {
             }
         }
         out
+    }
+
+    fn claude_config_dir(&self) -> Result<std::path::PathBuf> {
+        Ok(self.provider(ProviderId::Claude)?.ctx().home.join(".claude"))
+    }
+
+    pub fn claude_status_line(&self) -> Result<altflip_providers::claude_status::StatusLineState> {
+        Ok(altflip_providers::claude_status::state(&self.claude_config_dir()?))
+    }
+
+    pub fn set_claude_status_line(&self, on: bool) -> Result<altflip_providers::claude_status::StatusLineState> {
+        use altflip_providers::claude_status;
+        let dir = self.claude_config_dir()?;
+        let st = if on { claude_status::install(&dir)? } else { claude_status::uninstall(&dir)? };
+        let msg = if on {
+            "Installed the AltFlip status line in Claude Code for live usage"
+        } else {
+            "Removed the AltFlip status line from Claude Code"
+        };
+        let _ = self.db().log(Some(ProviderId::Claude), None, "settings", msg);
+        Ok(st)
     }
 
     pub fn usage_error(&self, account_id: &str) -> Option<String> {

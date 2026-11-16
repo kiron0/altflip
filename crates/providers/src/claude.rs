@@ -309,11 +309,12 @@ impl Provider for Claude {
     }
 }
 
-static BACKOFF: std::sync::Mutex<Option<std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, u32)>>> =
-    std::sync::Mutex::new(None);
+type BackoffMap = std::collections::HashMap<String, (chrono::DateTime<chrono::Utc>, u32)>;
+static BACKOFF: std::sync::Mutex<Option<BackoffMap>> = std::sync::Mutex::new(None);
 static VERIFIED: std::sync::Mutex<Option<std::collections::HashMap<String, String>>> = std::sync::Mutex::new(None);
 
-pub const THROTTLED: &str = "Anthropic is pacing usage checks. AltFlip keeps the last reading and checks again shortly.";
+pub const THROTTLED: &str =
+    "Anthropic is pacing usage checks. AltFlip keeps the last reading and checks again shortly.";
 
 pub fn is_throttled(e: &Error) -> bool {
     matches!(e, Error::Platform(m) if m == THROTTLED)
@@ -367,11 +368,8 @@ fn anthropic_get(path: &str, token: &str) -> Result<serde_json::Value> {
         .map_err(|e| Error::Platform(format!("No connection to Anthropic: {e}")))?;
     let status = resp.status().as_u16();
     if status == 429 {
-        let secs = resp
-            .headers()
-            .get("retry-after")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<i64>().ok());
+        let secs =
+            resp.headers().get("retry-after").and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<i64>().ok());
         set_backoff(token, secs);
         return Err(Error::Platform(THROTTLED.into()));
     }

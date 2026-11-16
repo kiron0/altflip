@@ -213,6 +213,18 @@ pub async fn refresh_usage(app: AppHandle) -> Result<Vec<UsageRow>> {
 }
 
 #[tauri::command]
+pub async fn claude_status_line(state: State<'_, AppState>) -> Result<altflip_engine::StatusLineState> {
+    let engine = state.engine.clone();
+    blocking(move || engine.claude_status_line()).await
+}
+
+#[tauri::command]
+pub async fn set_claude_status_line(state: State<'_, AppState>, on: bool) -> Result<altflip_engine::StatusLineState> {
+    let engine = state.engine.clone();
+    blocking(move || engine.set_claude_status_line(on)).await
+}
+
+#[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> Result<Settings> {
     state.engine.settings()
 }

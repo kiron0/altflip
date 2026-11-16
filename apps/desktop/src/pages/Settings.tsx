@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Copy, Download, FolderOpen, RotateCcw, Upload } from "lucide-react";
-import { api, errorText, type AppInfo, type Settings } from "@/lib/api";
+import { api, errorText, type AppInfo, type Settings, type StatusLineState } from "@/lib/api";
+import { relativeTime } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { PageHeader } from "@/components/PageHeader";
 import { ProviderIcon } from "@/components/ProviderIcon";
@@ -136,6 +137,44 @@ function BackupDialog({ mode, onClose }: { mode: "export" | "import" | null; onC
   );
 }
 
+function ClaudeStatusLineRow({ disabled }: { disabled: boolean }) {
+  const toast = useApp((s) => s.toast);
+  const [st, setSt] = useState<StatusLineState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void api.claudeStatusLine().then(setSt).catch(() => setSt(null));
+  }, []);
+  const toggle = async (on: boolean) => {
+    setBusy(true);
+    try {
+      setSt(await api.setClaudeStatusLine(on));
+      toast({ kind: "success", text: on ? "Claude Code status line installed" : "Claude Code status line removed" });
+    } catch (e) {
+      toast({ kind: "error", text: "Could not change Claude Code's status line", detail: errorText(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const hint = !st?.installed
+    ? "Claude Code reports usage to its status line after every reply. AltFlip adds a small script there so the Usage page updates instantly and never waits on Anthropic."
+    : [
+        st.lastReadingAt ? `Last reading ${relativeTime(st.lastReadingAt)}.` : "Waiting for the next Claude Code reply.",
+        st.chainedCommand ? `Your previous status line still runs: ${st.chainedCommand}` : null,
+      ]
+        .filter(Boolean)
+        .join(" ");
+  return (
+    <Row label="Instant usage from Claude Code" hint={hint}>
+      <Switch
+        label="Instant usage from Claude Code"
+        checked={!!st?.installed}
+        disabled={disabled || busy || !st}
+        onChange={(v) => void toggle(v)}
+      />
+    </Row>
+  );
+}
+
 export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | null }) {
   const settings = useApp((s) => s.settings);
   const overview = useApp((s) => s.overview);
@@ -248,6 +287,7 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
                 hint="The same numbers Claude Code's /usage and Codex's usage panel show, checked at most once a minute per account. Antigravity is read from the running app on this computer."
                 disabled={!settings.usageMonitoring}
               />
+              <ClaudeStatusLineRow disabled={!settings.usageMonitoring} />
               <Row label="Check in the background every" hint="While the window is open, usage updates every minute.">
                 <Select
                   label="Refresh interval"
