@@ -125,17 +125,20 @@ export function UsagePage() {
                       </div>
                       <div className="truncate font-mono text-[10.5px] text-faint">{a.email}</div>
                     </div>
-                    {a.usage.length === 0 ? (
-                      <p className="text-[13px] text-muted">
-                        {a.usageError ?? emptyText(p)}
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                        {a.usage.map((u) => (
-                          <Reading key={u.usageType} u={u} showCountdown={!!settings?.showResetCountdowns} />
-                        ))}
-                      </div>
-                    )}
+                    <div className="min-w-0">
+                      {a.usageError && (
+                        <p className="mb-3 rounded-[12px] bg-surface-2 px-3 py-2 text-[12.5px] text-muted">{a.usageError}</p>
+                      )}
+                      {a.usage.length === 0 ? (
+                        !a.usageError && <p className="text-[13px] text-muted">{emptyText(p)}</p>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                          {a.usage.map((u) => (
+                            <Reading key={u.usageType} u={u} showCountdown={!!settings?.showResetCountdowns} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
             </div>

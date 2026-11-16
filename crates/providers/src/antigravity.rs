@@ -551,7 +551,7 @@ impl Provider for Antigravity {
                     limit_value: None,
                     window_minutes: None,
                     reset_at: m.reset_secs.filter(|_| !reset_passed).and_then(epoch_to_rfc3339),
-                    source: "Antigravity (local)".into(),
+                    source: LOCAL_SOURCE.into(),
                     confidence: "provider-reported".into(),
                     observed_at: observed.clone(),
                     account_key: Some(format!("google:{email}")),
@@ -565,11 +565,167 @@ impl Provider for Antigravity {
     }
 }
 
+pub const LIVE_SOURCE: &str = "Antigravity (live)";
+pub const LOCAL_SOURCE: &str = "Antigravity (local)";
+
+fn is_language_server(p: &ProcView) -> Option<&str> {
+    let csrf = p.cmd.iter().find_map(|a| a.strip_prefix("--csrf_token="))?;
+    let exe = p.exe.as_deref().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let name = p.name.to_lowercase();
+    let ours = name == "agy" || exe.contains("antigravity") || exe.contains(".gemini");
+    ours.then_some(csrf)
+}
+
+fn listening_ports(p: &ProcView) -> Vec<u16> {
+    let mut ports: Vec<u16> = p
+        .cmd
+        .iter()
+        .filter_map(|a| {
+            let (k, v) = a.strip_prefix("--")?.split_once('=')?;
+            if k.ends_with("port") {
+                v.parse().ok()
+            } else {
+                None
+            }
+        })
+        .collect();
+    #[cfg(unix)]
+    {
+        let lsof = ["/usr/sbin/lsof", "/usr/bin/lsof"].into_iter().find(|p| Path::new(p).exists()).unwrap_or("lsof");
+        if let Ok(out) = std::process::Command::new(lsof)
+            .args(["-nP", "-a", "-iTCP", "-sTCP:LISTEN", "-p", &p.pid.to_string(), "-Fn"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            for l in String::from_utf8_lossy(&out.stdout).lines() {
+                if let Some(port) = l.strip_prefix('n').and_then(|a| a.rsplit_once(':')).and_then(|(_, n)| n.parse().ok())
+                {
+                    ports.push(port);
+                }
+            }
+        }
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    ports
+}
+
+fn fetch_status(port: u16, csrf: &str) -> Option<serde_json::Value> {
+    let tls = ureq::tls::TlsConfig::builder().disable_verification(true).build();
+    let agent = ureq::Agent::new_with_config(
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(4)))
+            .http_status_as_error(false)
+            .tls_config(tls)
+            .build(),
+    );
+    for scheme in ["http", "https"] {
+        let url = format!("{scheme}://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetUserStatus");
+        let Ok(mut res) = agent
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("Connect-Protocol-Version", "1")
+            .header("X-Codeium-Csrf-Token", csrf)
+            .send("{}")
+        else {
+            continue;
+        };
+        if res.status() != 200 {
+            continue;
+        }
+        if let Ok(v) = res.body_mut().read_json::<serde_json::Value>() {
+            if v.get("userStatus").is_some() {
+                return Some(v);
+            }
+        }
+    }
+    None
+}
+
+pub fn parse_live_status(v: &serde_json::Value, now: chrono::DateTime<chrono::Utc>) -> Vec<UsageReading> {
+    let Some(st) = v.get("userStatus") else { return Vec::new() };
+    let Some(email) = st.get("email").and_then(|e| e.as_str()).filter(|e| !e.is_empty()) else { return Vec::new() };
+    let observed = now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let models = st.pointer("/cascadeModelConfigData/clientModelConfigs").and_then(|m| m.as_array());
+    let mut out = Vec::new();
+    for m in models.into_iter().flatten() {
+        let Some(label) = m.get("label").and_then(|l| l.as_str()) else { continue };
+        let Some(q) = m.get("quotaInfo") else { continue };
+        let reset = q
+            .get("resetTime")
+            .and_then(|r| r.as_str())
+            .and_then(|r| chrono::DateTime::parse_from_rfc3339(r).ok())
+            .map(|r| r.with_timezone(&chrono::Utc));
+        let frac = q.get("remainingFraction").and_then(|f| f.as_f64());
+        if frac.is_none() && reset.is_none() {
+            continue;
+        }
+        let reset_passed = reset.is_some_and(|r| r < now);
+        let used = if reset_passed { 0.0 } else { ((1.0 - frac.unwrap_or(0.0)) * 100.0).clamp(0.0, 100.0) };
+        out.push(UsageReading {
+            usage_type: format!("model:{label}"),
+            label: label.to_string(),
+            used_percent: Some(used),
+            used_value: None,
+            limit_value: None,
+            window_minutes: None,
+            reset_at: reset.filter(|_| !reset_passed).map(|r| r.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)),
+            source: LIVE_SOURCE.into(),
+            confidence: "provider-reported".into(),
+            observed_at: observed.clone(),
+            account_key: Some(format!("google:{email}")),
+        });
+    }
+    out
+}
+
+pub fn live_usage() -> Vec<UsageReading> {
+    let now = chrono::Utc::now();
+    let mut out: Vec<UsageReading> = Vec::new();
+    for p in process::snapshot() {
+        let Some(csrf) = is_language_server(&p) else { continue };
+        for port in listening_ports(&p) {
+            let Some(v) = fetch_status(port, csrf) else { continue };
+            let readings = parse_live_status(&v, now);
+            if readings.is_empty() {
+                continue;
+            }
+            let key = readings[0].account_key.clone();
+            if !out.iter().any(|r| r.account_key == key) {
+                out.extend(readings);
+            }
+            break;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::pb::build;
     use crate::testutil::{ctx, jwt};
+
+    #[test]
+    fn parses_live_language_server_status() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-16T11:00:00Z").unwrap().with_timezone(&chrono::Utc);
+        let v = serde_json::json!({"userStatus": {"email": "a@b.c", "cascadeModelConfigData": {"clientModelConfigs": [
+            {"label": "Flash", "quotaInfo": {"remainingFraction": 0.75, "resetTime": "2026-11-16T15:00:00Z"}},
+            {"label": "Spent", "quotaInfo": {"resetTime": "2026-11-16T15:00:00Z"}},
+            {"label": "Old", "quotaInfo": {"remainingFraction": 0.1, "resetTime": "2026-11-16T10:00:00Z"}},
+            {"label": "None", "quotaInfo": {}}
+        ]}}});
+        let r = parse_live_status(&v, now);
+        assert_eq!(r.len(), 3);
+        assert_eq!(r[0].used_percent, Some(25.0));
+        assert_eq!(r[0].reset_at.as_deref(), Some("2026-11-16T15:00:00Z"));
+        assert_eq!(r[0].account_key.as_deref(), Some("google:a@b.c"));
+        assert_eq!(r[1].used_percent, Some(100.0));
+        assert_eq!(r[2].used_percent, Some(0.0));
+        assert!(r[2].reset_at.is_none());
+        assert!(r.iter().all(|u| u.source == LIVE_SOURCE));
+    }
 
     fn payload(email: &str, rt: &str) -> Vec<u8> {
         let json = serde_json::json!({"token": {"access_token": "a", "token_type": "Bearer", "refresh_token": rt, "expiry": "2030-01-01T00:00:00Z"}, "auth_method": "consumer", "id_token": jwt(serde_json::json!({"email": email}))});

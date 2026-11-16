@@ -14,11 +14,15 @@ use altflip_core::{
 use altflip_database::{NewAccount, RecoveryRow, Store};
 use altflip_providers::{Ctx, Provider};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
+
+const CLAUDE_ESTIMATE_SOURCE: &str = "Claude Desktop history";
+const CODEX_LOG_SOURCE: &str = "Codex session log";
+const CLAUDE_SIGNED_OUT: &str = "Claude Code is signed out. Run claude auth login in Terminal, then press Refresh.";
 
 pub struct EngineConfig {
     pub data_dir: PathBuf,
@@ -962,8 +966,29 @@ impl Engine {
         let live_on = self.settings()?.live_usage;
         for p in &self.providers {
             let mut readings = p.usage();
-            if live_on && matches!(p.id(), ProviderId::Claude | ProviderId::Codex) {
-                readings.extend(self.live_usage(p, force));
+            let mut stale_sources: Vec<(Option<String>, &str)> = Vec::new();
+            match p.id() {
+                ProviderId::Claude | ProviderId::Codex if live_on => {
+                    let local = if p.id() == ProviderId::Claude { CLAUDE_ESTIMATE_SOURCE } else { CODEX_LOG_SOURCE };
+                    readings.retain(|r| r.source != local);
+                    stale_sources.push((None, local));
+                    readings.extend(self.live_usage(p, force));
+                }
+                ProviderId::Antigravity => {
+                    let live = altflip_providers::antigravity::live_usage();
+                    let keys: HashSet<Option<String>> = live.iter().map(|r| r.account_key.clone()).collect();
+                    readings.retain(|r| !keys.contains(&r.account_key));
+                    for key in keys.into_iter().flatten() {
+                        if let Ok(Some(a)) = self.db().account_by_identity(p.id(), &key) {
+                            stale_sources.push((Some(a.id), altflip_providers::antigravity::LOCAL_SOURCE));
+                        }
+                    }
+                    readings.extend(live);
+                }
+                _ => {}
+            }
+            for (account, source) in &stale_sources {
+                let _ = self.db().drop_usage_source(p.id(), account.as_deref(), source);
             }
             if readings.is_empty() {
                 continue;
@@ -1039,6 +1064,9 @@ impl Engine {
             Some(l) => l.clone(),
             None => self.load_snapshot(row)?,
         };
+        if p.health(&snap) == AuthHealth::NeedsReauth || claude::creds_locator(&snap).is_none() {
+            return Err(Error::Credential(CLAUDE_SIGNED_OUT.into()));
+        }
         if !claude::needs_renewal(&snap) {
             return Ok(snap);
         }

@@ -667,6 +667,15 @@ impl Store {
         Ok(())
     }
 
+    pub fn drop_usage_source(&self, provider: ProviderId, account_id: Option<&str>, source: &str) -> Result<usize> {
+        self.conn
+            .execute(
+                "DELETE FROM usage_snapshots WHERE provider_id = ?1 AND data_source = ?2 AND (?3 IS NULL OR account_id = ?3)",
+                params![provider.as_str(), source, account_id],
+            )
+            .map_err(db_err)
+    }
+
     pub fn latest_usage(&self) -> Result<Vec<UsageRow>> {
         let mut stmt = self
             .conn
