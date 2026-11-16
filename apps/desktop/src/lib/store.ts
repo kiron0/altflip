@@ -40,6 +40,10 @@ interface State {
 
 let toastSeq = 1;
 
+function fresher(next: Overview, current: Overview | null) {
+  return !current || Date.parse(next.generatedAt) >= Date.parse(current.generatedAt);
+}
+
 export function applyTheme(theme: Settings["theme"]) {
   try {
     localStorage.setItem("altflip.theme", theme);
@@ -70,7 +74,7 @@ export const useApp = create<State>((set, get) => ({
     try {
       const [overview, settings] = await Promise.all([api.overview(refresh), api.settings()]);
       applyTheme(settings.theme);
-      set({ overview, settings, loading: false });
+      set((st) => ({ overview: fresher(overview, st.overview) ? overview : st.overview, settings, loading: false }));
     } catch (e) {
       set({ loading: false });
       get().toast({ kind: "error", text: "Could not load accounts", detail: errorText(e) });
@@ -158,14 +162,14 @@ export function wireEvents() {
   if (wired) return;
   wired = true;
   const s = useApp.setState;
-  void listen<Overview>("altflip://overview", (e) => s({ overview: e.payload }));
+  void listen<Overview>("altflip://overview", (e) => s((st) => (fresher(e.payload, st.overview) ? { overview: e.payload } : {})));
   let usageTimer: ReturnType<typeof setTimeout> | undefined;
   void listen("altflip://usage", () => {
     clearTimeout(usageTimer);
     usageTimer = setTimeout(() => {
       void api
         .overview(false)
-        .then((overview) => s({ overview }))
+        .then((overview) => s((st) => (fresher(overview, st.overview) ? { overview } : {})))
         .catch(() => undefined);
     }, 150);
   });

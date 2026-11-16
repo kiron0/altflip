@@ -9,7 +9,7 @@ pub fn desktop_dir(home: &Path) -> PathBuf {
     if cfg!(target_os = "macos") {
         home.join("Library/Application Support/Claude")
     } else if cfg!(windows) {
-        std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| home.join("AppData/Roaming")).join("Claude")
+        crate::env_dir_for(home, "APPDATA").unwrap_or_else(|| home.join("AppData/Roaming")).join("Claude")
     } else {
         home.join(".config/Claude")
     }

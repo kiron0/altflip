@@ -41,7 +41,7 @@ impl Codex {
     }
 
     fn home(&self) -> PathBuf {
-        std::env::var_os("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| self.ctx.home.join(".codex"))
+        crate::env_dir_for(&self.ctx.home, "CODEX_HOME").unwrap_or_else(|| self.ctx.home.join(".codex"))
     }
 
     fn auth(&self) -> Locator {

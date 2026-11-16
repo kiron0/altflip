@@ -200,7 +200,7 @@ impl Antigravity {
         if cfg!(target_os = "macos") {
             self.ctx.home.join("Library/Application Support")
         } else if cfg!(windows) {
-            std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| self.ctx.home.join("AppData/Roaming"))
+            crate::env_dir_for(&self.ctx.home, "APPDATA").unwrap_or_else(|| self.ctx.home.join("AppData/Roaming"))
         } else {
             self.ctx.home.join(".config")
         }
@@ -1053,6 +1053,13 @@ mod tests {
         ctx.io.write(&a.credential(), &payload("alt@x.dev", "r2")).unwrap();
         a.apply(&main).unwrap();
         assert!(a.verify(&main).is_ok());
+    }
+
+    #[test]
+    fn config_root_stays_inside_a_private_home() {
+        let (_d, ctx) = ctx();
+        let a = Antigravity::new(ctx.clone());
+        assert!(a.config_root().starts_with(&ctx.home));
     }
 
     #[test]

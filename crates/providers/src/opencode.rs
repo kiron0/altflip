@@ -59,11 +59,15 @@ fn safe_id(id: &str) -> bool {
 }
 
 pub(crate) fn read_credentials(db: &Path) -> Result<Vec<Credential>> {
-    let conn = rusqlite::Connection::open_with_flags(
-        db,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|e| Error::Platform(format!("Cannot open OpenCode's database: {e}")))?;
+    use rusqlite::OpenFlags;
+    let ro = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    let conn = rusqlite::Connection::open_with_flags(db, ro)
+        .and_then(|c| c.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(())).map(|_| c))
+        .or_else(|_| {
+            let uri = format!("file:{}?immutable=1", db.display().to_string().replace('?', "%3f").replace('#', "%23"));
+            rusqlite::Connection::open_with_flags(uri, ro | OpenFlags::SQLITE_OPEN_URI)
+        })
+        .map_err(|e| Error::Platform(format!("Cannot open OpenCode's database: {e}")))?;
     conn.busy_timeout(Duration::from_secs(3)).map_err(|e| Error::Platform(e.to_string()))?;
     let mut stmt = conn
         .prepare(
@@ -218,9 +222,7 @@ fn activate(state_dir: &Path, credential_id: &str) -> Result<()> {
 impl OpenCode {
     pub fn new(ctx: Ctx) -> Self {
         let env_dir = |var: &str, fallback: &[&str]| {
-            std::env::var_os(var)
-                .map(PathBuf::from)
-                .filter(|p| p.is_absolute())
+            crate::env_dir_for(&ctx.home, var)
                 .unwrap_or_else(|| fallback.iter().fold(ctx.home.clone(), |p, s| p.join(s)))
         };
         let data_dir = env_dir("XDG_DATA_HOME", &[".local", "share"]);
@@ -535,6 +537,31 @@ mod tests {
         let err = p.apply(&other).unwrap_err().to_string();
         assert!(err.contains("background service is not running"), "{err}");
         assert!(p.raw_capture().unwrap().same_primary_data(&live));
+    }
+
+    #[test]
+    fn reads_wal_database_without_shm_files() {
+        let d = tempfile::tempdir().unwrap();
+        let db = d.path().join("wal.db");
+        sample(&db);
+        {
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.pragma_update(None, "journal_mode", "WAL").unwrap();
+        }
+        let _ = std::fs::remove_file(d.path().join("wal.db-shm"));
+        let _ = std::fs::remove_file(d.path().join("wal.db-wal"));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        }
+        let creds = read_credentials(&db);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(d.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(creds.unwrap().len(), 4);
     }
 
     #[test]

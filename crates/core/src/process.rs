@@ -103,7 +103,7 @@ pub fn request_quit(target: &ProcessInfo) -> Result<()> {
     }
     #[cfg(windows)]
     {
-        let out = std::process::Command::new("taskkill")
+        let out = background_command("taskkill")
             .args(["/PID", &target.pid.to_string()])
             .output()
             .map_err(|e| Error::Platform(format!("Cannot ask {} to close: {e}", target.name)))?;
@@ -181,9 +181,21 @@ pub fn find_binary(name: &str, extra: &[PathBuf]) -> Option<PathBuf> {
     })
 }
 
+pub fn background_command(program: impl AsRef<std::ffi::OsStr>) -> std::process::Command {
+    #[allow(unused_mut)]
+    let mut cmd = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 pub fn run_capture(bin: &Path, args: &[&str], envs: &[(&str, &Path)], timeout: Duration) -> Result<String> {
     use std::io::Read;
-    let mut cmd = std::process::Command::new(bin);
+    let mut cmd = background_command(bin);
     cmd.args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())

@@ -188,6 +188,19 @@ pub(crate) fn parse_semver(s: &str) -> Option<(u64, u64, u64)> {
     Some((it.next()??, it.next().flatten().unwrap_or(0), it.next().flatten().unwrap_or(0)))
 }
 
+pub(crate) fn env_dir_for(home: &std::path::Path, var: &str) -> Option<PathBuf> {
+    let real = dirs_home()?;
+    if real != home {
+        return None;
+    }
+    std::env::var_os(var).map(PathBuf::from).filter(|p| p.is_absolute())
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var_os(var).map(PathBuf::from)
+}
+
 pub(crate) fn json(bytes: Option<&[u8]>) -> Option<serde_json::Value> {
     bytes.and_then(|b| serde_json::from_slice(b).ok())
 }
@@ -214,9 +227,9 @@ pub(crate) fn run_login(
     timeout: Duration,
 ) -> Result<()> {
     use std::io::{BufRead, BufReader, Read};
-    use std::process::{Command, Stdio};
+    use std::process::Stdio;
     use std::sync::atomic::Ordering;
-    let mut cmd = Command::new(bin);
+    let mut cmd = process::background_command(bin);
     cmd.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     for (k, v) in envs {
         cmd.env(k, v);
