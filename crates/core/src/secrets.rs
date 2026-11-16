@@ -56,6 +56,16 @@ mod imp {
         Ok(format!("\"{s}\""))
     }
 
+    fn stored_as_binary(service: &str, account: &str) -> Result<bool> {
+        let out = Command::new(SECURITY)
+            .args(["find-generic-password", "-s", service, "-a", account, "-g"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .output()
+            .map_err(|e| Error::Credential(format!("Cannot run the macOS security tool: {e}")))?;
+        Ok(String::from_utf8_lossy(&out.stderr).lines().any(|l| l.starts_with("password: 0x")))
+    }
+
     pub fn get(service: &str, account: &str) -> Result<Option<Vec<u8>>> {
         let out = Command::new(SECURITY)
             .args(["find-generic-password", "-s", service, "-a", account, "-w"])
@@ -73,12 +83,10 @@ mod imp {
         if v.last() == Some(&b'\n') {
             v.pop();
         }
-        if v.len() % 2 == 0 && !v.is_empty() && v.iter().all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(c)) {
-            if let Ok(raw) = hex::decode(&v) {
-                if raw.iter().any(|c| *c < 0x20 && !matches!(c, b'\n' | b'\r' | b'\t')) {
-                    return Ok(Some(raw));
-                }
-            }
+        if stored_as_binary(service, account)? {
+            let raw = hex::decode(&v)
+                .map_err(|_| Error::Credential(format!("Keychain item {service} could not be decoded")))?;
+            return Ok(Some(raw));
         }
         Ok(Some(v))
     }

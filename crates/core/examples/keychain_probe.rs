@@ -9,6 +9,12 @@ fn main() {
         assert_eq!(s.get(svc, "probe").unwrap().unwrap(), v, "len {n}");
         println!("ok text {n}");
     }
+    let hex_text = b"84b0aa11ff2299cc84b0aa11ff2299cc84b0aa11ff2299cc84b0aa11ff2299cc".to_vec();
+    s.set(svc, "probe", &hex_text).unwrap();
+    assert_eq!(s.get(svc, "probe").unwrap().unwrap(), hex_text);
+    println!("ok hex text");
+    let real = s.get(altflip_core::vault::VAULT_SERVICE, altflip_core::vault::VAULT_ACCOUNT).unwrap();
+    println!("vault key decodes: {}", real.map(|k| hex::decode(&k).map(|d| d.len() == 32).unwrap_or(false)).unwrap_or(false));
     let bin: Vec<u8> = vec![7, 34, 109, 0x7b, 10, 200];
     s.set(svc, "probe", &bin).unwrap();
     assert_eq!(s.get(svc, "probe").unwrap().unwrap(), bin);

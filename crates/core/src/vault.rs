@@ -64,10 +64,16 @@ impl Vault {
             }
         }
         let key = match secrets.get(VAULT_SERVICE, VAULT_ACCOUNT)? {
-            Some(hexed) => {
-                let raw = Zeroizing::new(
-                    hex::decode(&hexed).map_err(|_| Error::Credential("The AltFlip vault key is malformed".into()))?,
-                );
+            Some(stored) => {
+                let raw = Zeroizing::new(match hex::decode(&stored) {
+                    Ok(k) => k,
+                    Err(_) if stored.len() == 32 => {
+                        let fixed = Zeroizing::new(hex::encode(&stored));
+                        secrets.set(VAULT_SERVICE, VAULT_ACCOUNT, fixed.as_bytes())?;
+                        stored.clone()
+                    }
+                    Err(_) => return Err(Error::Credential("The AltFlip vault key is malformed".into())),
+                });
                 let arr: [u8; 32] = raw
                     .as_slice()
                     .try_into()
