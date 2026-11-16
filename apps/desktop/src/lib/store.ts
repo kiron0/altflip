@@ -170,7 +170,13 @@ export function wireEvents() {
     s({ settings: e.payload });
   });
   void listen<Progress>("altflip://switch-progress", (e) =>
-    s((st) => ({ switching: { ...st.switching, [e.payload.provider]: e.payload } })),
+    s((st) => {
+      const next = { ...st.switching };
+      if (e.payload.stage === "done") {
+        if (next[e.payload.provider]?.accountId === e.payload.accountId) delete next[e.payload.provider];
+      } else next[e.payload.provider] = e.payload;
+      return { switching: next };
+    }),
   );
   void listen<string>("altflip://navigate", (e) => {
     const p = e.payload as Page;

@@ -18,8 +18,12 @@ fn provider(id: &str) -> Result<ProviderId> {
 }
 
 pub fn broadcast(app: &AppHandle) {
+    broadcast_with(app, false);
+}
+
+pub fn broadcast_with(app: &AppHandle, refresh_live: bool) {
     let state = app.state::<AppState>();
-    if let Ok(o) = state.engine.overview(false) {
+    if let Ok(o) = state.engine.overview(refresh_live) {
         let _ = app.emit("altflip://overview", &o);
         tray::refresh(app, &o);
     }
@@ -48,6 +52,12 @@ pub fn run_switch(app: &AppHandle, account_id: &str, confirm_restart: bool, sour
     tray::set_busy(app, true);
     let res = state.engine.switch(account_id, SwitchOptions { confirm_restart }, &progress);
     tray::set_busy(app, false);
+    if let Ok(provider) = state.engine.account(account_id).map(|a| a.provider) {
+        let _ = app.emit(
+            "altflip://switch-progress",
+            &Progress { provider, account_id: account_id.to_string(), stage: "done".into(), message: String::new() },
+        );
+    }
     let settings = state.engine.settings().ok();
     let enabled = settings.as_ref().is_some_and(|s| s.notifications);
     let background = source != "window";
@@ -63,7 +73,7 @@ pub fn run_switch(app: &AppHandle, account_id: &str, confirm_restart: bool, sour
         Err(e) if enabled => notify(app, "Switch failed", &e.to_string(), background),
         _ => {}
     }
-    broadcast(app);
+    broadcast_with(app, true);
     res
 }
 

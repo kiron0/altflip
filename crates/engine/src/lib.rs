@@ -49,6 +49,7 @@ pub struct Engine {
     logins: Mutex<HashMap<String, Arc<AtomicBool>>>,
     usage_errors: Mutex<HashMap<String, String>>,
     last_live: Mutex<HashMap<String, std::time::Instant>>,
+    live_cache: Mutex<HashMap<ProviderId, LiveRead>>,
     data_dir: PathBuf,
 }
 
@@ -63,6 +64,8 @@ pub struct AccountView {
     pub usage: Vec<UsageRow>,
     pub usage_error: Option<String>,
 }
+
+type LiveRead = (Option<LiveAccount>, Option<String>);
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +186,7 @@ impl Engine {
             logins: Mutex::new(HashMap::new()),
             usage_errors: Mutex::new(HashMap::new()),
             last_live: Mutex::new(HashMap::new()),
+            live_cache: Mutex::new(HashMap::new()),
             data_dir,
         }
     }
@@ -334,10 +338,14 @@ impl Engine {
             let compat = serde_json::to_value(info.compatibility)?;
             let _ = self.db().update_provider(p.id(), info.version.as_deref(), compat.as_str().unwrap_or("unknown"));
             let (live, live_error) = if info.installed && refresh_live {
-                match self.sync_live(p) {
+                let fresh = match self.sync_live(p) {
                     Ok(l) => (l, None),
                     Err(e) => (None, Some(e.to_string())),
-                }
+                };
+                self.live_cache.lock().unwrap_or_else(|e| e.into_inner()).insert(p.id(), fresh.clone());
+                fresh
+            } else if info.installed {
+                self.live_cache.lock().unwrap_or_else(|e| e.into_inner()).get(&p.id()).cloned().unwrap_or((None, None))
             } else {
                 (None, None)
             };
@@ -1194,6 +1202,10 @@ impl Engine {
         };
         let _ = self.db().log(Some(ProviderId::Claude), None, "settings", msg);
         Ok(st)
+    }
+
+    pub fn account(&self, account_id: &str) -> Result<AccountRow> {
+        self.db().account(account_id)
     }
 
     pub fn usage_error(&self, account_id: &str) -> Option<String> {
