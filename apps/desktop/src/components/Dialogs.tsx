@@ -2,43 +2,31 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, Check, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
-import { api, errorText, type ApiError, type ProviderId, type ProviderState, type SwitchRecord } from "@/lib/api";
+import { api, errorText, type LoginDone, type LoginLine, type ProviderId, type ProviderState, type SwitchRecord } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Badge, Dialog, Field, Input, Select, Spinner } from "./ui/primitives";
 import { ProviderIcon } from "./ProviderIcon";
 
-type LoginDone = { loginId: string; account: { label: string } | null; error: ApiError | null };
-
 const NO_INCOMPLETE: SwitchRecord[] = [];
-
-const modeText = {
-  immediate: "Takes effect immediately.",
-  "new-sessions": "New sessions use the selected account. Sessions already running keep their current account.",
-  "restart-required": "The app must restart to use the selected account.",
-  manual: "Requires a manual step in the provider app.",
-  unsupported: "Switching is not available.",
-};
 
 export function SwitchConfirmDialog() {
   const plan = useApp((s) => s.confirm);
   const close = useApp((s) => s.closeConfirm);
   const run = useApp((s) => s.runSwitch);
-  const name = useApp((s) => s.overview?.providers.find((p) => p.info.id === plan?.provider)?.info.name);
   if (!plan) return null;
-  const restart = plan.requiresConfirmation;
   return (
     <Dialog
       open
       onClose={close}
-      title={restart ? `Restart ${plan.restartApps.join(" and ")}?` : `Switch ${name} to ${plan.label}?`}
-      description={modeText[plan.mode]}
+      title={plan.title}
+      description={plan.description}
       footer={
         <>
           <Button onClick={close}>Cancel</Button>
-          <Button variant="primary" data-autofocus onClick={() => void run(plan.accountId, restart)}>
-            {restart ? "Restart and switch" : "Switch"}
+          <Button variant="primary" data-autofocus onClick={() => void run(plan.accountId, plan.requiresConfirmation)}>
+            {plan.confirmLabel}
           </Button>
         </>
       }
@@ -152,7 +140,7 @@ export function AddAccountDialog() {
   }, [state?.info.id]);
 
   useEffect(() => {
-    const a = listen<{ loginId: string; line: string }>("altflip://login-output", (e) => {
+    const a = listen<LoginLine>("altflip://login-output", (e) => {
       if (e.payload.loginId === loginRef.current) setLines((l) => [...l.slice(-40), e.payload.line]);
     });
     const done = (p: LoginDone) => {

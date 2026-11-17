@@ -1,17 +1,21 @@
+use ts_rs::TS;
 use altflip_core::{Error, ProviderId, Result};
 use altflip_database::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub onboarded: bool,
+    #[ts(type = "\"system\" | \"light\" | \"dark\"")]
     pub theme: String,
     pub launch_at_login: bool,
     pub start_minimized: bool,
     pub close_to_tray: bool,
     pub show_dock_icon: bool,
+    #[ts(type = "\"popover\" | \"dashboard\"")]
     pub tray_click: String,
     pub global_shortcut: Option<String>,
     pub notifications: bool,

@@ -26,6 +26,7 @@ zeroize = "1"
 dirs = "6"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
+ts-rs = { version = "12", features = ["no-serde-warnings"] }
 
 [profile.dev]
 debug = 0

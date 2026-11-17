@@ -112,8 +112,7 @@ export const useApp = create<State>((set, get) => ({
         get().toast({ kind: "warning", text: `Can't switch to ${plan.label}`, detail: plan.blocked });
         return;
       }
-      const warn = get().settings?.warnRunningSessions ?? true;
-      if (plan.requiresConfirmation || (warn && plan.warnings.length > 0)) {
+      if (plan.needsConfirm) {
         set({ confirm: plan });
         return;
       }
@@ -127,11 +126,10 @@ export const useApp = create<State>((set, get) => ({
     set({ confirm: null });
     try {
       const out = await api.switchAccount(accountId, confirmRestart);
-      const extra = out.restarted.length ? ` Reopened ${out.restarted.join(", ")}.` : "";
       get().toast({
         kind: out.status === "succeeded" || out.status === "already-active" ? "success" : "info",
         text: out.message,
-        detail: (out.verification ?? "") + extra || undefined,
+        detail: out.detail ?? undefined,
       });
       return true;
     } catch (e) {
@@ -163,16 +161,19 @@ export function wireEvents() {
   wired = true;
   const s = useApp.setState;
   void listen<Overview>("altflip://overview", (e) => s((st) => (fresher(e.payload, st.overview) ? { overview: e.payload } : {})));
+  const pull = () =>
+    void api
+      .overview(false)
+      .then((overview) => s((st) => (fresher(overview, st.overview) ? { overview } : {})))
+      .catch(() => undefined);
   let usageTimer: ReturnType<typeof setTimeout> | undefined;
   void listen("altflip://usage", () => {
     clearTimeout(usageTimer);
-    usageTimer = setTimeout(() => {
-      void api
-        .overview(false)
-        .then((overview) => s((st) => (fresher(overview, st.overview) ? { overview } : {})))
-        .catch(() => undefined);
-    }, 150);
+    usageTimer = setTimeout(pull, 150);
   });
+  setInterval(() => {
+    if (document.visibilityState === "visible") pull();
+  }, 30000);
   void listen<Settings>("altflip://settings", (e) => {
     applyTheme(e.payload.theme);
     s({ settings: e.payload });

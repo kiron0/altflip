@@ -5,10 +5,6 @@ import "./styles.css";
 const tauri = "__TAURI_INTERNALS__" in window;
 const ua = navigator.userAgent;
 document.documentElement.dataset.os = !tauri ? "web" : /Mac/.test(ua) ? "macos" : /Win/.test(ua) ? "windows" : "linux";
-if (import.meta.env.DEV && !tauri) {
-  const { installMocks } = await import("./dev/mock");
-  installMocks();
-}
 
 const surface = new URLSearchParams(window.location.search).get("surface");
 document.documentElement.dataset.surface = surface === "quick" ? "quick" : "main";

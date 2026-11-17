@@ -6,6 +6,7 @@ pub mod process;
 pub mod resource;
 pub mod secrets;
 pub mod statedb;
+pub mod text;
 pub mod vault;
 
 pub use error::{Error, Result};

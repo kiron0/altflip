@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, Plus, Search, Star, Trash2 } from "lucide-react";
 import { api, errorText, type AccountView, type ProviderId, type ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
-import { cn, countdown, healthText, planLabel, relativeTime, signInHint } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { AccountRow, StateBadge } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, Field, Input, Meter, Segmented, Select } from "@/components/ui/primitives";
+import { Badge, Card, Dialog, Field, Input, Meter, Segmented, Select, Tag } from "@/components/ui/primitives";
 
 const CATEGORIES = ["", "Personal", "Work", "University", "Secondary", "Testing"];
 
@@ -37,13 +37,8 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
     }
   };
 
-  const move = async (dir: -1 | 1) => {
-    const ids = provider.accounts.map((a) => a.id);
-    const j = idx + dir;
-    if (j < 0 || j >= ids.length) return;
-    [ids[idx], ids[j]] = [ids[j], ids[idx]];
-    await api.reorder(provider.info.id, ids).catch((e) => toast({ kind: "error", text: "Could not reorder", detail: errorText(e) }));
-  };
+  const move = (dir: -1 | 1) =>
+    api.moveAccount(account.id, dir).catch((e) => toast({ kind: "error", text: "Could not reorder", detail: errorText(e) }));
 
   return (
     <Dialog
@@ -113,24 +108,24 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
         <Detail label="Email">{account.email ?? "Not provided"}</Detail>
         {account.displayName && <Detail label="Name">{account.displayName}</Detail>}
         {account.organization && <Detail label="Organization">{account.organization}</Detail>}
-        <Detail label="Plan">{planLabel(account.subscriptionType) ?? "Unknown"}</Detail>
+        <Detail label="Plan">{account.planLabel ?? "Unknown"}</Detail>
         <Detail label="Sign-in method">{account.authMethod ?? "Unknown"}</Detail>
       </div>
 
       <h3 className="mt-5 mb-1 label-mono text-faint">Status</h3>
       <div className="divide-y divide-border">
         <Detail label="Authentication">
-          <Badge tone={account.health === "ok" ? "ok" : account.health === "unknown" ? "neutral" : "danger"}>{healthText[account.health]}</Badge>
+          <Tag badge={account.healthBadge} />
         </Detail>
-        {(account.health === "expired" || account.health === "needs-reauth") && (
+        {account.needsSignIn && (
           <Detail label="To fix">
-            <span className="text-danger">{signInHint(provider.info.id)}</span>
+            <span className="text-danger">{provider.signInHint}</span>
           </Detail>
         )}
-        <Detail label="Added">{relativeTime(account.createdAt)}</Detail>
-        <Detail label="Last used">{relativeTime(account.lastUsedAt)}</Detail>
-        <Detail label="Credentials saved">{relativeTime(account.lastCapturedAt)}</Detail>
-        {isActive && account.verifiedAt && <Detail label="Last verified">{relativeTime(account.verifiedAt)}</Detail>}
+        <Detail label="Added">{account.addedText}</Detail>
+        <Detail label="Last used">{account.lastUsedText}</Detail>
+        <Detail label="Credentials saved">{account.capturedText}</Detail>
+        {isActive && account.verifiedText && <Detail label="Last verified">{account.verifiedText}</Detail>}
         {account.lastError && (
           <Detail label="Last error">
             <span className="text-danger">{account.lastError}</span>
@@ -147,13 +142,13 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
                 <div className="mb-1 flex text-[12px]">
                   <span className="flex-1">{u.label}</span>
                   <span className="tabular-nums text-muted">
-                    {u.usedPercent != null ? `${Math.round(u.usedPercent)}%` : "—"}
-                    {u.resetAt && ` · resets in ${countdown(u.resetAt)}`}
+                    {u.percent != null ? `${u.percent}%` : "—"}
+                    {u.countdown && ` · resets in ${u.countdown}`}
                   </span>
                 </div>
-                {u.usedPercent != null && <Meter value={u.usedPercent} />}
+                {u.percent != null && <Meter value={u.percent} />}
                 <div className="mt-1 text-[11px] text-faint">
-                  {u.source}, observed {relativeTime(u.observedAt)}
+                  {u.source}, observed {u.observedText}
                 </div>
               </div>
             ))}

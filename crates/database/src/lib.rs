@@ -2,6 +2,7 @@ use altflip_core::{now_rfc3339, AuthHealth, Error, ProviderId, Result, UsageRead
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use ts_rs::TS;
 
 const MIGRATIONS: &[&str] = &[
     r#"
@@ -114,11 +115,16 @@ DELETE FROM providers WHERE id = 'opencode';
 "#,
 ];
 
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
+}
+
 fn db_err(e: rusqlite::Error) -> Error {
     Error::Database(e.to_string())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AccountRow {
     pub id: String,
@@ -152,7 +158,8 @@ pub struct ActiveRow {
     pub verified_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchRecord {
     pub id: String,
@@ -180,7 +187,8 @@ pub struct RecoveryRow {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityRow {
     pub id: i64,
@@ -191,7 +199,8 @@ pub struct ActivityRow {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UsageRow {
     pub account_id: String,
@@ -201,10 +210,12 @@ pub struct UsageRow {
     pub retrieved_at: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts", optional_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountPatch {
     pub label: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub category: Option<Option<String>>,
     pub favorite: Option<bool>,
     pub sort_order: Option<i64>,
@@ -877,6 +888,14 @@ mod tests {
         let rows = s.latest_usage().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].reading.used_percent, Some(20.0));
+    }
+
+    #[test]
+    fn patch_null_category_clears_it() {
+        let p: AccountPatch = serde_json::from_str(r#"{"category":null}"#).unwrap();
+        assert_eq!(p.category, Some(None));
+        let p: AccountPatch = serde_json::from_str(r#"{"label":"x"}"#).unwrap();
+        assert_eq!(p.category, None);
     }
 
     #[test]

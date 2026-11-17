@@ -1,3 +1,4 @@
+use ts_rs::TS;
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -9,7 +10,8 @@ pub trait SecretStore: Send + Sync {
     fn status(&self) -> SecretStoreStatus;
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SecretStoreStatus {
     pub backend: String,

@@ -17,6 +17,7 @@ path = "src/main.rs"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+ts-rs = { workspace = true }
 altflip-core.workspace = true
 altflip-engine.workspace = true
 serde.workspace = true

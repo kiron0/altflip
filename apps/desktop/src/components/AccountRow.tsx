@@ -1,38 +1,22 @@
 import { AlertTriangle, Check, Star } from "lucide-react";
 import type { AccountView, ProviderState } from "@/lib/api";
 import { useApp } from "@/lib/store";
-import { cn, countdown, planLabel, rowState, signInHint, type RowState } from "@/lib/utils";
-import { Badge, Spinner } from "./ui/primitives";
+import { cn } from "@/lib/utils";
+import { Badge, Spinner, Tag } from "./ui/primitives";
 import { Button } from "./ui/button";
 
-const stateBadge: Record<RowState, { text: string; tone: "accent" | "ok" | "warn" | "danger" | "info" | "neutral" } | null> = {
-  active: null,
-  "new-sessions": null,
-  drifted: { text: "Changed outside", tone: "warn" },
-  "signed-out": { text: "Signed out", tone: "warn" },
-  external: null,
-  expired: { text: "Sign-in expired", tone: "danger" },
-  error: { text: "Last switch failed", tone: "danger" },
-  idle: null,
-};
+const toneText = { danger: "text-danger", warn: "text-warn" } as Record<string, string>;
 
 export function StateBadge({ account }: { account: AccountView }) {
-  const b = stateBadge[rowState(account)];
-  return b ? <Badge tone={b.tone}>{b.text}</Badge> : null;
+  return <Tag badge={account.stateBadge} />;
 }
 
 export function UsageInline({ account }: { account: AccountView }) {
-  const now = Date.now();
-  const u = account.usage
-    .filter((x) => x.usedPercent != null && !(x.resetAt && Date.parse(x.resetAt) < now))
-    .sort((a, b) => (b.usedPercent ?? 0) - (a.usedPercent ?? 0))[0];
-  if (!u || u.usedPercent == null) return null;
-  const pct = Math.round(u.usedPercent);
-  const tone = pct >= 90 ? "text-danger" : pct >= 70 ? "text-warn" : "text-muted";
-  const reset = countdown(u.resetAt);
+  const u = account.inlineUsage;
+  if (!u) return null;
   return (
-    <span className={cn("tabular-nums", tone)} title={`${u.label}: ${pct}% used · ${u.source}`}>
-      {pct}%{reset ? ` · ${reset}` : ""}
+    <span className={cn("tabular-nums", toneText[u.tone] ?? "text-muted")} title={u.title}>
+      {u.text}
     </span>
   );
 }
@@ -53,8 +37,6 @@ export function AccountRow({
   const busy = progress?.accountId === account.id;
   const otherBusy = !!progress && !busy;
   const isActive = provider.activeAccountId === account.id;
-  const plan = planLabel(account.subscriptionType);
-  const sub = [account.email ?? account.displayName, plan].filter(Boolean).join(" · ");
   const drifted = isActive && provider.activationState === "drifted";
 
   return (
@@ -82,16 +64,16 @@ export function AccountRow({
             <span className="text-accent">{progress.message}…</span>
           ) : (
             <>
-              <span className="truncate">{sub || "No details"}</span>
+              <span className="truncate">{account.subtitle}</span>
               {account.usage.length > 0 && <span className="text-faint">·</span>}
               <UsageInline account={account} />
             </>
           )}
         </div>
       </div>
-      {compact && (account.health === "expired" || account.health === "needs-reauth") && (
-        <span title={signInHint(provider.info.id)}>
-          <AlertTriangle className="size-3.5 text-danger" aria-label={signInHint(provider.info.id)} />
+      {compact && account.needsSignIn && (
+        <span title={provider.signInHint}>
+          <AlertTriangle className="size-3.5 text-danger" aria-label={provider.signInHint} />
         </span>
       )}
       {busy ? (

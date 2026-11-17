@@ -26,22 +26,18 @@ const NAV: { page: Page; label: string; icon: React.ReactNode; hint: string }[] 
 function SummaryCard({ isMac }: { isMac: boolean }) {
   const overview = useApp((s) => s.overview);
   const navigate = useApp((s) => s.navigate);
-  const providers = overview?.providers ?? [];
-  const accounts = providers.reduce((n, p) => n + p.accounts.length, 0);
-  const tools = providers.filter((p) => p.info.installed).length;
-  const active = providers.filter((p) => p.activeAccountId).length;
-  const pct = tools ? Math.round((active / tools) * 100) : 0;
+  const stats = overview?.stats;
   return (
     <button type="button" onClick={() => navigate("accounts")} className="disk w-full text-left">
       <div className="flex items-baseline justify-between text-[13px] font-semibold">
         <span>Your accounts</span>
-        <span className="font-mono text-[11px] font-normal text-faint">{accounts}</span>
+        <span className="font-mono text-[11px] font-normal text-faint">{stats?.accounts ?? 0}</span>
       </div>
       <div className="bar mt-1">
-        <span className="used" style={{ width: `${Math.max(6, pct)}%` }} />
+        <span className="used" style={{ width: `${Math.max(6, stats?.activePercent ?? 0)}%` }} />
       </div>
       <div className="text-[11.5px] text-muted">
-        {active} of {tools} tools have an active account
+        {stats?.activeSelections ?? 0} of {stats?.tools ?? 0} tools have an active account
       </div>
       <div className="text-[11px] text-faint">Encrypted on this {isMac ? "Mac" : "computer"}</div>
     </button>

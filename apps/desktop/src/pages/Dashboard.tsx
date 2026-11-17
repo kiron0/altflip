@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowRight, Plus, TerminalSquare } from "lucide-react";
-import { api, errorText, type ProviderState, type SwitchRecord } from "@/lib/api";
+import { api, errorText, type ProviderState, type SwitchView } from "@/lib/api";
 import { useApp } from "@/lib/store";
-import { activeAccount, cn, plural, relativeTime } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { AccountRow } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { RecoveryBanner } from "@/components/Dialogs";
-import { StatusBadge, compatText, compatTone, modeShort } from "@/components/labels";
 import { Button } from "@/components/ui/button";
-import { Badge, Card } from "@/components/ui/primitives";
+import { Card, Tag } from "@/components/ui/primitives";
 
 function Stat({ label, value, tone }: { label: string; value: string | number; tone?: "warn" }) {
   return (
@@ -23,15 +22,16 @@ function Stat({ label, value, tone }: { label: string; value: string | number; t
 function LiveLine({ p }: { p: ProviderState }) {
   const toast = useApp((s) => s.toast);
   const [saving, setSaving] = useState(false);
-  if (p.liveError) return <p className="text-[12px] text-danger">Could not read the current sign-in: {p.liveError}</p>;
-  if (!p.live) return <p className="text-[12px] text-muted">Not signed in right now.</p>;
-  if (p.live.savedAccountId) return null;
-  const who = p.live.identity.email ?? p.live.identity.displayName ?? "an unknown account";
+  const line = p.liveLine;
+  if (!line) return null;
+  if (line.kind === "error") return <p className="text-[12px] text-danger">{line.lead}</p>;
+  if (line.kind === "signed-out") return <p className="text-[12px] text-muted">{line.lead}</p>;
   return (
     <div className="flex items-center gap-2 rounded-xl bg-warn-soft px-3.5 py-2.5 text-[13px]">
       <AlertTriangle className="size-3.5 shrink-0 text-warn" />
       <span className="flex-1">
-        {p.info.name} is signed in as <b className="font-medium">{who}</b>, which isn't saved yet.
+        {line.lead} <b className="font-medium">{line.who}</b>
+        {line.tail}
       </span>
       <Button
         size="sm"
@@ -58,11 +58,7 @@ function ProviderCard({ p }: { p: ProviderState }) {
   const openAdd = useApp((s) => s.openAdd);
   const navigate = useApp((s) => s.navigate);
   const seeAll = useApp((s) => s.seeAll);
-  const cli = p.info.processes.filter((x) => x.kind === "cli").length;
-  const apps = p.info.processes.filter((x) => x.kind === "app" || x.kind === "ide").length;
-  const active = activeAccount(p);
-  const featured = active ?? p.accounts[0];
-  const running = [cli && plural(cli, "running session"), apps && plural(apps, "open app")].filter(Boolean).join(", ");
+  const featured = p.accounts.find((a) => a.id === p.featuredAccountId);
   return (
     <Card className="flex flex-col">
       <div className="flex items-center gap-3 border-b border-border px-5 py-3.5">
@@ -70,12 +66,9 @@ function ProviderCard({ p }: { p: ProviderState }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-display text-[15px] font-semibold">{p.info.name}</span>
-            <Badge tone={compatTone[p.info.compatibility]}>{compatText[p.info.compatibility]}</Badge>
+            <Tag badge={p.compatBadge} />
           </div>
-          <div className="truncate text-[11.5px] text-muted">
-            {p.info.version ?? "Version unknown"} · {modeShort[p.info.switchMode]}
-            {running && ` · ${running}`}
-          </div>
+          <div className="truncate text-[11.5px] text-muted">{p.subtitle}</div>
         </div>
         <Button size="icon" variant="ghost" aria-label={`Add ${p.info.name} account`} onClick={() => openAdd(p.info.id)}>
           <Plus />
@@ -85,9 +78,7 @@ function ProviderCard({ p }: { p: ProviderState }) {
         <div className="px-2 empty:hidden">
           <LiveLine p={p} />
         </div>
-        {p.activationState === "drifted" && active && (
-          <p className="px-2 text-[12px] text-warn">Selected: {active.label}. The sign-in was changed outside AltFlip.</p>
-        )}
+        {p.driftNote && <p className="px-2 text-[12px] text-warn">{p.driftNote}</p>}
         <div>
           {featured && <AccountRow account={featured} provider={p} onOpen={() => navigate("accounts", featured.id)} />}
         </div>
@@ -96,16 +87,16 @@ function ProviderCard({ p }: { p: ProviderState }) {
         )}
         <button
           type="button"
-          onClick={() => (p.accounts.length > 1 ? seeAll(p.info.id) : openAdd(p.info.id))}
+          onClick={() => (p.seeAll ? seeAll(p.info.id) : openAdd(p.info.id))}
           className="mx-2 mb-1 mt-auto flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[12.5px] font-medium text-muted transition-colors hover:bg-surface-2 hover:text-text"
         >
-          {p.accounts.length > 1 ? (
+          {p.seeAll ? (
             <>
-              See all {p.accounts.length} accounts <ArrowRight className="size-3.5" />
+              {p.moreLabel} <ArrowRight className="size-3.5" />
             </>
           ) : (
             <>
-              <Plus className="size-3.5" /> Add another {p.info.name} account
+              <Plus className="size-3.5" /> {p.moreLabel}
             </>
           )}
         </button>
@@ -173,7 +164,7 @@ export function Dashboard() {
   const overview = useApp((s) => s.overview);
   const navigate = useApp((s) => s.navigate);
   const openAdd = useApp((s) => s.openAdd);
-  const [recent, setRecent] = useState<SwitchRecord[]>([]);
+  const [recent, setRecent] = useState<SwitchView[]>([]);
 
   useEffect(() => {
     void api.history(6).then(setRecent).catch(() => undefined);
@@ -183,11 +174,7 @@ export function Dashboard() {
   const shown = overview.providers.filter((p) => p.accounts.length > 0);
   const missing = overview.providers.filter((p) => !p.info.installed && p.accounts.length === 0);
   const unsaved = overview.providers.filter((p) => p.info.installed && p.accounts.length === 0);
-  const accounts = overview.providers.reduce((n, p) => n + p.accounts.length, 0);
-  const attention =
-    overview.incomplete.length +
-    overview.providers.filter((p) => p.activationState === "drifted" || p.activationState === "signed-out").length +
-    overview.providers.reduce((n, p) => n + p.accounts.filter((a) => a.health === "expired" || a.health === "needs-reauth").length, 0);
+  const { accounts, attention } = overview.stats;
 
   if (accounts === 0 && overview.incomplete.length === 0) return <EmptyOverview />;
 
@@ -202,9 +189,9 @@ export function Dashboard() {
         </div>
       )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Tools detected" value={`${overview.providers.filter((p) => p.info.installed).length} of ${overview.providers.length}`} />
+        <Stat label="Tools detected" value={overview.stats.toolsText} />
         <Stat label="Saved accounts" value={accounts} />
-        <Stat label="Active selections" value={overview.providers.filter((p) => p.activeAccountId).length} />
+        <Stat label="Active selections" value={overview.stats.activeSelections} />
         <Stat label="Needs attention" value={attention} tone={attention ? "warn" : undefined} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -247,10 +234,10 @@ export function Dashboard() {
           <div key={r.id} className="flex items-center gap-3 px-5 py-3">
             <ProviderIcon id={r.provider} size={16} />
             <span className="min-w-0 flex-1 truncate">
-              {r.fromLabel ?? "—"} <ArrowRight className="inline size-3 text-faint" /> <b className="font-medium">{r.toLabel}</b>
+              {r.fromLabel ?? "—"} <ArrowRight className="inline size-3 text-faint" /> <b className="font-medium">{r.toText}</b>
             </span>
-            <StatusBadge status={r.status} />
-            <span className="w-24 text-right text-[11.5px] text-muted">{relativeTime(r.startedAt)}</span>
+            <Tag badge={r.statusBadge} />
+            <span className="w-24 text-right text-[11.5px] text-muted">{r.startedText}</span>
           </div>
         ))}
       </Card>

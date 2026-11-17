@@ -32,7 +32,7 @@ export function QuickPanel() {
   }, [load]);
 
   const providers = (overview?.providers ?? []).filter((p) => p.info.installed || p.accounts.length > 0);
-  const attention = (overview?.incomplete.length ?? 0) > 0 || providers.some((p) => p.activationState === "drifted");
+  const attention = !!overview?.stats.needsReview;
   const open = (page?: string) => void api.showMain(page);
   const addFor = (target: string) => {
     void api.showMain("accounts").then(() => setTimeout(() => void emitTo("main", "altflip://add-account", target), 120));
