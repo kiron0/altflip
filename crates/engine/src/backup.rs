@@ -1,7 +1,7 @@
 use crate::Engine;
 use altflip_core::resource::Snapshot;
 use altflip_core::vault::{open_with_passphrase, seal_with_passphrase};
-use altflip_core::{fsutil, AuthHealth, Error, Result};
+use altflip_core::{fsutil, Error, Result};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -59,24 +59,50 @@ pub fn import(engine: &Engine, path: &Path, passphrase: &str) -> Result<usize> {
     if file.format != "altflip-backup" || file.version != 1 {
         return Err(Error::Invalid("This backup was made by an unsupported version of AltFlip".into()));
     }
+    let total = file.accounts.len();
     let mut count = 0;
+    let mut first_err = None;
     for a in file.accounts {
-        let raw = Zeroizing::new(
-            base64::engine::general_purpose::STANDARD
-                .decode(&a.snapshot)
-                .map_err(|_| Error::Invalid("The backup contains a damaged account".into()))?,
-        );
-        let snap = Snapshot::from_bytes(&raw)?;
-        let health = engine.provider(snap.provider).map(|p| p.health(&snap)).unwrap_or(AuthHealth::Unknown);
-        let (row, _) = engine.upsert(&snap, Some(a.label), a.category, health)?;
-        if a.favorite {
-            engine.db().patch_account(
-                &row.id,
-                &altflip_database::AccountPatch { favorite: Some(true), ..Default::default() },
-            )?;
+        let label = a.label.clone();
+        let res = (|| -> Result<()> {
+            let raw = Zeroizing::new(
+                base64::engine::general_purpose::STANDARD
+                    .decode(&a.snapshot)
+                    .map_err(|_| Error::Invalid("The backup contains a damaged account".into()))?,
+            );
+            let snap = Snapshot::from_bytes(&raw)?;
+            let p = engine.provider(snap.provider)?;
+            let health = p.health(&snap);
+            let _guard = engine.lock(snap.provider)?;
+            let (row, _) = engine.upsert(&snap, Some(a.label), a.category, health)?;
+            if a.favorite {
+                engine.db().patch_account(
+                    &row.id,
+                    &altflip_database::AccountPatch { favorite: Some(true), ..Default::default() },
+                )?;
+            }
+            Ok(())
+        })();
+        match res {
+            Ok(()) => count += 1,
+            Err(e) => {
+                let _ =
+                    engine.db().log(None, None, "backup", &format!("Skipped {label} while restoring a backup: {e}"));
+                first_err.get_or_insert(e);
+            }
         }
-        count += 1;
     }
-    engine.db().log(None, None, "backup", &format!("Restored {count} accounts from a backup"))?;
+    if count == 0 {
+        if let Some(e) = first_err {
+            return Err(e);
+        }
+    }
+    let skipped = total - count;
+    let msg = if skipped > 0 {
+        format!("Restored {count} accounts from a backup; {skipped} could not be restored")
+    } else {
+        format!("Restored {count} accounts from a backup")
+    };
+    engine.db().log(None, None, "backup", &msg)?;
     Ok(count)
 }

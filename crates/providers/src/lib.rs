@@ -259,7 +259,11 @@ pub(crate) fn run_login(
                 };
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(150)),
-            Err(e) => return Err(Error::Platform(e.to_string())),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::Platform(e.to_string()));
+            }
         }
     }
 }

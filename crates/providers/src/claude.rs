@@ -18,6 +18,11 @@ pub struct Claude {
 }
 
 fn username() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(lookup_username).clone()
+}
+
+fn lookup_username() -> String {
     std::env::var("USER")
         .or_else(|_| std::env::var("LOGNAME"))
         .or_else(|_| std::env::var("USERNAME"))
@@ -514,7 +519,11 @@ pub fn exact_usage(snap: &Snapshot) -> Result<Vec<UsageReading>> {
             return Err(Error::Verification("The saved login belongs to a different Claude account".into()));
         }
         if let Ok(mut m) = VERIFIED.lock() {
-            m.get_or_insert_with(Default::default).insert(token_key(token), snap.identity.key.clone());
+            let m = m.get_or_insert_with(Default::default);
+            if m.len() >= 64 {
+                m.clear();
+            }
+            m.insert(token_key(token), snap.identity.key.clone());
         }
     }
     let usage = anthropic_get("/api/oauth/usage", token)?;

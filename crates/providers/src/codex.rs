@@ -130,7 +130,12 @@ fn session_owner(path: &Path) -> Option<String> {
     Some(format!("chatgpt:{user}:{account}"))
 }
 
+#[cfg(test)]
 pub(crate) fn rate_limits_from(path: &Path) -> Option<RolloutReading> {
+    rate_limits_owned(path, session_owner(path))
+}
+
+fn rate_limits_owned(path: &Path, account_key: Option<String>) -> Option<RolloutReading> {
     use std::io::{Read, Seek, SeekFrom};
     let mut f = std::fs::File::open(path).ok()?;
     let size = f.metadata().ok()?.len();
@@ -153,7 +158,7 @@ pub(crate) fn rate_limits_from(path: &Path) -> Option<RolloutReading> {
             continue;
         }
         let observed_at = v.get("timestamp").and_then(|t| t.as_str()).map(str::to_string).or_else(|| mtime.clone())?;
-        return Some(RolloutReading { observed_at, account_key: session_owner(path), rate_limits: rl.clone() });
+        return Some(RolloutReading { observed_at, account_key, rate_limits: rl.clone() });
     }
     None
 }
@@ -335,10 +340,11 @@ impl Provider for Codex {
         let mut seen: Vec<Option<String>> = Vec::new();
         let mut out = Vec::new();
         for f in self.newest_rollouts(40) {
-            let Some(r) = rate_limits_from(&f) else { continue };
-            if seen.contains(&r.account_key) {
+            let owner = session_owner(&f);
+            if seen.contains(&owner) {
                 continue;
             }
+            let Some(r) = rate_limits_owned(&f, owner) else { continue };
             seen.push(r.account_key.clone());
             out.extend(readings_from(&r));
             if seen.len() >= 6 {

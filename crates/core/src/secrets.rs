@@ -83,7 +83,8 @@ mod imp {
         if v.last() == Some(&b'\n') {
             v.pop();
         }
-        if stored_as_binary(service, account)? {
+        let maybe_hex = !v.is_empty() && v.len() % 2 == 0 && v.iter().all(u8::is_ascii_hexdigit);
+        if maybe_hex && stored_as_binary(service, account)? {
             let raw = hex::decode(&v)
                 .map_err(|_| Error::Credential(format!("Keychain item {service} could not be decoded")))?;
             return Ok(Some(raw));

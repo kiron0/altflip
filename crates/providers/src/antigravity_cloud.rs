@@ -43,6 +43,7 @@ type Cache<T> = Mutex<Option<HashMap<String, T>>>;
 static TOKENS: Cache<Token> = Mutex::new(None);
 static PROJECTS: Cache<Project> = Mutex::new(None);
 static SECRETS: OnceLock<Vec<String>> = OnceLock::new();
+static MISSED: Mutex<Option<Instant>> = Mutex::new(None);
 
 pub fn hub_user_agent() -> String {
     let os = match std::env::consts::OS {
@@ -127,22 +128,34 @@ fn installed_sources(home: &Path) -> Vec<PathBuf> {
     out
 }
 
+fn scan_installed_secrets(home: &Path) -> Vec<String> {
+    for path in installed_sources(home) {
+        let Ok(bytes) = std::fs::read(&path) else { continue };
+        if find(&bytes, CLIENT_ID.as_bytes()).is_none() {
+            continue;
+        }
+        let found = secrets_in(&bytes);
+        if !found.is_empty() {
+            return found;
+        }
+    }
+    Vec::new()
+}
+
 pub fn installed_secrets(home: &Path) -> Vec<String> {
-    SECRETS
-        .get_or_init(|| {
-            for path in installed_sources(home) {
-                let Ok(bytes) = std::fs::read(&path) else { continue };
-                if find(&bytes, CLIENT_ID.as_bytes()).is_none() {
-                    continue;
-                }
-                let found = secrets_in(&bytes);
-                if !found.is_empty() {
-                    return found;
-                }
-            }
-            Vec::new()
-        })
-        .clone()
+    if let Some(found) = SECRETS.get() {
+        return found.clone();
+    }
+    let Ok(mut last) = MISSED.lock() else { return scan_installed_secrets(home) };
+    if last.is_some_and(|t| t.elapsed() < Duration::from_secs(600)) {
+        return Vec::new();
+    }
+    let found = scan_installed_secrets(home);
+    if found.is_empty() {
+        *last = Some(Instant::now());
+        return found;
+    }
+    SECRETS.get_or_init(|| found).clone()
 }
 
 fn b64_runs(b: &[u8]) -> Vec<Vec<u8>> {

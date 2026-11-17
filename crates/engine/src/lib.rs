@@ -50,6 +50,7 @@ pub struct Engine {
     usage_errors: Mutex<HashMap<String, String>>,
     last_live: Mutex<HashMap<String, std::time::Instant>>,
     live_cache: Mutex<HashMap<ProviderId, LiveRead>>,
+    usage_lock: Mutex<()>,
     data_dir: PathBuf,
 }
 
@@ -187,6 +188,7 @@ impl Engine {
             usage_errors: Mutex::new(HashMap::new()),
             last_live: Mutex::new(HashMap::new()),
             live_cache: Mutex::new(HashMap::new()),
+            usage_lock: Mutex::new(()),
             data_dir,
         }
     }
@@ -332,7 +334,7 @@ impl Engine {
     }
 
     pub fn overview(&self, refresh_live: bool) -> Result<Overview> {
-        let mut out = Vec::new();
+        let mut states = Vec::new();
         for p in &self.providers {
             let info = p.info();
             let compat = serde_json::to_value(info.compatibility)?;
@@ -353,24 +355,30 @@ impl Engine {
                 self.reconcile_active(p.id(), live.as_ref())?;
             }
             let gate = self.switching_gate(p, &info);
-            out.push(ProviderState {
-                accounts: self.account_views(Some(p.id()))?,
-                active_account_id: None,
-                activation_state: None,
-                live,
-                live_error,
-                switching_enabled: gate.is_none(),
-                switching_disabled_reason: gate,
-                info,
-            });
+            states.push((info, live, live_error, gate));
+        }
+        let mut views: HashMap<ProviderId, Vec<AccountView>> = HashMap::new();
+        for v in self.account_views(None)? {
+            views.entry(v.row.provider).or_default().push(v);
         }
         let db = self.db();
-        for st in out.iter_mut() {
-            if let Some(a) = db.active_for(st.info.id)? {
-                st.active_account_id = Some(a.account_id);
-                st.activation_state = Some(a.activation_state);
-            }
-        }
+        let active = db.active()?;
+        let out = states
+            .into_iter()
+            .map(|(info, live, live_error, gate)| {
+                let a = active.iter().find(|a| a.provider == info.id);
+                ProviderState {
+                    accounts: views.remove(&info.id).unwrap_or_default(),
+                    active_account_id: a.map(|a| a.account_id.clone()),
+                    activation_state: a.map(|a| a.activation_state.clone()),
+                    live,
+                    live_error,
+                    switching_enabled: gate.is_none(),
+                    switching_disabled_reason: gate,
+                    info,
+                }
+            })
+            .collect();
         Ok(Overview {
             providers: out,
             incomplete: db.incomplete_switches()?,
@@ -380,11 +388,16 @@ impl Engine {
     }
 
     pub fn account_views(&self, provider: Option<ProviderId>) -> Result<Vec<AccountView>> {
-        let db = self.db();
-        let active = db.active()?;
-        let usage = db.latest_usage()?;
-        Ok(db
-            .accounts(provider)?
+        let (active, usage, rows) = {
+            let db = self.db();
+            (db.active()?, db.latest_usage()?, db.accounts(provider)?)
+        };
+        let errors = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut by_account: HashMap<String, Vec<UsageRow>> = HashMap::new();
+        for u in usage {
+            by_account.entry(u.account_id.clone()).or_default().push(u);
+        }
+        Ok(rows
             .into_iter()
             .map(|row| {
                 let a = active.iter().find(|a| a.account_id == row.id);
@@ -392,8 +405,8 @@ impl Engine {
                     active: a.is_some(),
                     activation_state: a.map(|a| a.activation_state.clone()),
                     verified_at: a.and_then(|a| a.verified_at.clone()),
-                    usage: usage.iter().filter(|u| u.account_id == row.id).cloned().collect(),
-                    usage_error: self.usage_error(&row.id),
+                    usage: by_account.remove(&row.id).unwrap_or_default(),
+                    usage_error: errors.get(&row.id).cloned(),
                     row,
                 }
             })
@@ -529,9 +542,9 @@ impl Engine {
             }
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        self.logins.lock().unwrap().insert(login_id.to_string(), cancel.clone());
+        self.logins.lock().unwrap_or_else(|e| e.into_inner()).insert(login_id.to_string(), cancel.clone());
         let res = p.login(&cancel, out);
-        self.logins.lock().unwrap().remove(login_id);
+        self.logins.lock().unwrap_or_else(|e| e.into_inner()).remove(login_id);
         let snap = res?;
         let health = p.health(&snap);
         let (row, created) = self.upsert(&snap, label, category, health)?;
@@ -548,7 +561,7 @@ impl Engine {
     }
 
     pub fn cancel_login(&self, login_id: &str) {
-        if let Some(c) = self.logins.lock().unwrap().get(login_id) {
+        if let Some(c) = self.logins.lock().unwrap_or_else(|e| e.into_inner()).get(login_id) {
             c.store(true, Ordering::SeqCst);
         }
     }
@@ -564,14 +577,7 @@ impl Engine {
     }
 
     pub fn reorder(&self, provider: ProviderId, ids: &[String]) -> Result<()> {
-        let db = self.db();
-        for (i, id) in ids.iter().enumerate() {
-            if db.account(id)?.provider != provider {
-                return Err(Error::Invalid("Accounts belong to different providers".into()));
-            }
-            db.patch_account(id, &AccountPatch { sort_order: Some(i as i64), ..Default::default() })?;
-        }
-        Ok(())
+        self.db().reorder(provider, ids)
     }
 
     pub fn remove_account(&self, id: &str) -> Result<()> {
@@ -742,8 +748,9 @@ impl Engine {
             say("closing", format!("Closing {names}"));
             for t in &restart {
                 if let Err(e) = process::request_quit(t) {
-                    self.abort_before_apply(&op, &e)?;
+                    let aborted = self.abort_before_apply(&op, &e);
                     self.reopen(&closed);
+                    aborted?;
                     return Err(e);
                 }
                 if let Some(path) = &t.path {
@@ -761,19 +768,25 @@ impl Engine {
                     "{} did not close. Nothing was changed. Close it yourself (it may be asking to save work) and try again.",
                     info.name
                 ));
-                self.abort_before_apply(&op, &e)?;
+                let aborted = self.abort_before_apply(&op, &e);
+                self.reopen(&closed);
+                aborted?;
                 return Err(e);
             }
         }
 
-        self.db().set_switch_status(&op, "applying")?;
+        if let Err(e) = self.db().set_switch_status(&op, "applying") {
+            let _ = self.abort_before_apply(&op, &e);
+            self.reopen(&closed);
+            return Err(e);
+        }
         say("activating", format!("Activating {}", acct.label));
         let result = p.apply(&target).and_then(|_| {
             say("verifying", "Verifying the active account".into());
             p.verify(&target)
         });
 
-        let outcome = match result {
+        let outcome = (|| match result {
             Ok(verification) => {
                 let state = if running_sessions > 0 { "new-sessions" } else { "verified" };
                 let db = self.db();
@@ -845,7 +858,7 @@ impl Engine {
                     }
                 }
             }
-        };
+        })();
 
         if !closed.is_empty() {
             say("reopening", "Reopening apps".into());
@@ -987,10 +1000,16 @@ impl Engine {
     }
 
     pub fn refresh_usage_with(&self, force: bool) -> Result<Vec<UsageRow>> {
-        if !self.settings()?.usage_monitoring {
+        let _running = match self.usage_lock.try_lock() {
+            Ok(g) => g,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return self.db().latest_usage(),
+        };
+        let settings = self.settings()?;
+        if !settings.usage_monitoring {
             return self.db().latest_usage();
         }
-        let live_on = self.settings()?.live_usage;
+        let live_on = settings.live_usage;
         for p in &self.providers {
             let mut readings = p.usage();
             let mut stale_sources: Vec<(Option<String>, &str)> = Vec::new();
@@ -1065,6 +1084,7 @@ impl Engine {
                     },
                 }
             };
+            let mut batch = Vec::with_capacity(readings.len());
             for r in &readings {
                 let target = match &r.account_key {
                     Some(key) if key.starts_with("claude-org:") => {
@@ -1080,31 +1100,37 @@ impl Engine {
                     None => account_at(&r.observed_at),
                 };
                 if let Some(id) = target {
-                    db.add_usage(p.id(), &id, r)?;
+                    batch.push((id, r));
                 }
             }
+            db.add_usage_many(p.id(), &batch)?;
         }
         let _ = self.db().prune_usage(7);
         self.db().latest_usage()
     }
 
     fn note_usage_error(&self, row: &AccountRow, err: Option<String>) {
-        let mut map = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner());
-        match err {
-            Some(e) => {
-                if map.get(&row.id) != Some(&e) {
-                    let _ = self.db().log(
-                        Some(row.provider),
-                        Some(&row.id),
-                        "usage",
-                        &format!("Usage for {} unavailable: {e}", row.label),
-                    );
-                    map.insert(row.id.clone(), e);
+        let fresh = {
+            let mut map = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner());
+            match err {
+                Some(e) if map.get(&row.id) != Some(&e) => {
+                    map.insert(row.id.clone(), e.clone());
+                    Some(e)
+                }
+                Some(_) => None,
+                None => {
+                    map.remove(&row.id);
+                    None
                 }
             }
-            None => {
-                map.remove(&row.id);
-            }
+        };
+        if let Some(e) = fresh {
+            let _ = self.db().log(
+                Some(row.provider),
+                Some(&row.id),
+                "usage",
+                &format!("Usage for {} unavailable: {e}", row.label),
+            );
         }
     }
 
@@ -1152,6 +1178,7 @@ impl Engine {
         let rows = self.db().accounts(Some(p.id())).unwrap_or_default();
         let live = p.capture().ok().flatten();
         let mut out = Vec::new();
+        let mut with_reading: Option<HashSet<String>> = None;
         for row in rows {
             if covered.contains(&row.account_identifier) {
                 continue;
@@ -1198,9 +1225,13 @@ impl Engine {
                     self.note_usage_error(&row, None);
                 }
                 Err(e) => {
-                    let transient = matches!(e, Error::Platform(_));
+                    let transient = matches!(e, Error::Platform(_) | Error::Busy(_));
                     let has_reading = transient
-                        && self.db().latest_usage().unwrap_or_default().iter().any(|u| u.account_id == row.id);
+                        && with_reading
+                            .get_or_insert_with(|| {
+                                self.db().latest_usage().unwrap_or_default().into_iter().map(|u| u.account_id).collect()
+                            })
+                            .contains(&row.id);
                     if has_reading {
                         self.note_usage_error(&row, None);
                     } else if altflip_providers::claude::is_throttled(&e) {

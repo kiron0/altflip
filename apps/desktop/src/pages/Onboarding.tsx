@@ -25,7 +25,7 @@ export function Onboarding({ isMac }: { isMac: boolean }) {
   const importable = providers.filter((p) => p.info.installed && p.live && !p.live.savedAccountId);
 
   useEffect(() => {
-    setSelected(Object.fromEntries(importable.map((p) => [p.info.id, true])));
+    setSelected((prev) => ({ ...Object.fromEntries(importable.map((p) => [p.info.id, true])), ...prev }));
   }, [overview?.generatedAt]);
 
   const doImport = async () => {

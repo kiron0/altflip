@@ -197,8 +197,9 @@ pub fn set_busy(app: &AppHandle, busy: bool) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         if busy {
             let _ = tray.set_tooltip(Some("AltFlip — switching…"));
-        } else if let Ok(o) = app.state::<AppState>().engine.overview(false) {
-            let _ = tray.set_tooltip(Some(tooltip(&o)));
+        }
+        if let Ok(mut last) = app.state::<AppState>().tray_key.lock() {
+            last.clear();
         }
     }
 }

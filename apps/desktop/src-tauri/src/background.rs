@@ -7,6 +7,14 @@ use tauri::{AppHandle, Emitter, Manager};
 const STATUS_EVERY: Duration = Duration::from_secs(300);
 const FOCUS_THROTTLE: Duration = Duration::from_secs(15);
 
+fn first_notice(state: &AppState, key: String) -> bool {
+    let Ok(mut n) = state.notified.lock() else { return false };
+    if n.len() >= 512 {
+        n.clear();
+    }
+    n.insert(key)
+}
+
 fn refresh_status(app: &AppHandle) {
     let state = app.state::<AppState>();
     if let Ok(mut t) = state.last_refresh.lock() {
@@ -23,7 +31,7 @@ fn refresh_status(app: &AppHandle) {
         for a in &p.accounts {
             if matches!(a.row.health, AuthHealth::Expired | AuthHealth::NeedsReauth) {
                 let key = format!("auth:{}:{}", a.row.id, a.row.health.as_str());
-                if state.notified.lock().map(|mut n| n.insert(key)).unwrap_or(false) {
+                if first_notice(&state, key) {
                     notify(
                         app,
                         "Sign-in needed",
@@ -43,7 +51,13 @@ fn refresh_status(app: &AppHandle) {
 
 pub fn refresh_soon(app: &AppHandle) {
     let state = app.state::<AppState>();
-    let due = state.last_refresh.lock().ok().and_then(|t| *t).is_none_or(|t| t.elapsed() > FOCUS_THROTTLE);
+    let due = state.last_refresh.lock().is_ok_and(|mut t| {
+        let due = t.is_none_or(|t| t.elapsed() > FOCUS_THROTTLE);
+        if due {
+            *t = Some(Instant::now());
+        }
+        due
+    });
     if due {
         let app = app.clone();
         std::thread::spawn(move || refresh_status(&app));
@@ -72,7 +86,7 @@ pub fn refresh_usage_with(app: &AppHandle, force: bool) -> Result<Vec<UsageRow>>
                 r.reading.usage_type,
                 r.reading.reset_at.clone().unwrap_or_default()
             );
-            if !state.notified.lock().map(|mut n| n.insert(key)).unwrap_or(false) {
+            if !first_notice(&state, key) {
                 continue;
             }
             let label =

@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, Check, ExternalLink, KeyRound, LogIn, RotateCcw, Save, ShieldCheck } from "lucide-react";
-import { api, errorText, type ApiError, type ProviderId, type ProviderState } from "@/lib/api";
+import { api, errorText, type ApiError, type ProviderId, type ProviderState, type SwitchRecord } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "./ui/button";
 import { Badge, Dialog, Field, Input, Select, Spinner } from "./ui/primitives";
 import { ProviderIcon } from "./ProviderIcon";
+
+type LoginDone = { loginId: string; account: { label: string } | null; error: ApiError | null };
+
+const NO_INCOMPLETE: SwitchRecord[] = [];
 
 const modeText = {
   immediate: "Takes effect immediately.",
@@ -124,6 +128,8 @@ export function AddAccountDialog() {
   const [loginId, setLoginId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const loginRef = useRef<string | null>(null);
+  const early = useRef(new Map<string, LoginDone>());
+  const doneRef = useRef<((p: LoginDone) => void) | null>(null);
 
   const installed = useMemo(() => (overview?.providers ?? []).filter((p) => p.info.installed), [overview]);
   const state: ProviderState | undefined = installed.find((p) => p.info.id === provider);
@@ -149,17 +155,25 @@ export function AddAccountDialog() {
     const a = listen<{ loginId: string; line: string }>("altflip://login-output", (e) => {
       if (e.payload.loginId === loginRef.current) setLines((l) => [...l.slice(-40), e.payload.line]);
     });
-    const b = listen<{ loginId: string; account: { label: string } | null; error: ApiError | null }>("altflip://login-done", (e) => {
-      if (e.payload.loginId !== loginRef.current) return;
+    const done = (p: LoginDone) => {
       loginRef.current = null;
       setLoginId(null);
       setBusy(false);
-      if (e.payload.account) {
-        toast({ kind: "success", text: `Added ${e.payload.account.label}`, detail: "Your active account was not changed." });
+      if (p.account) {
+        toast({ kind: "success", text: `Added ${p.account.label}`, detail: "Your active account was not changed." });
         openAdd(null);
-      } else if (e.payload.error) {
-        setError(e.payload.error.message);
+      } else if (p.error) {
+        setError(p.error.message);
       }
+    };
+    doneRef.current = done;
+    const b = listen<LoginDone>("altflip://login-done", (e) => {
+      if (e.payload.loginId !== loginRef.current) {
+        if (early.current.size >= 8) early.current.clear();
+        early.current.set(e.payload.loginId, e.payload);
+        return;
+      }
+      done(e.payload);
     });
     return () => {
       void a.then((f) => f());
@@ -183,6 +197,11 @@ export function AddAccountDialog() {
         const id = await api.startLogin(provider, label, category || null);
         loginRef.current = id;
         setLoginId(id);
+        const finished = early.current.get(id);
+        if (finished) {
+          early.current.delete(id);
+          doneRef.current?.(finished);
+        }
       } catch (e) {
         setBusy(false);
         setError(errorText(e));
@@ -354,7 +373,7 @@ function MethodOption({
 }
 
 export function RecoveryBanner() {
-  const incomplete = useApp((s) => s.overview?.incomplete ?? []);
+  const incomplete = useApp((s) => s.overview?.incomplete ?? NO_INCOMPLETE);
   const toast = useApp((s) => s.toast);
   const [busy, setBusy] = useState(false);
   if (incomplete.length === 0) return null;

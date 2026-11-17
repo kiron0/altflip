@@ -329,12 +329,27 @@ impl Antigravity {
     fn app_version(path: &Path) -> Option<String> {
         #[cfg(target_os = "macos")]
         {
-            let out = std::process::Command::new("/usr/bin/plutil")
+            type Cache = std::collections::HashMap<PathBuf, (Option<std::time::SystemTime>, Option<String>)>;
+            static CACHE: std::sync::Mutex<Option<Cache>> = std::sync::Mutex::new(None);
+            let plist = path.join("Contents/Info.plist");
+            let stamp = std::fs::metadata(&plist).and_then(|m| m.modified()).ok();
+            if let Some((s, v)) = CACHE.lock().ok().and_then(|c| c.as_ref().and_then(|c| c.get(&plist).cloned())) {
+                if s == stamp {
+                    return v;
+                }
+            }
+            let v = std::process::Command::new("/usr/bin/plutil")
                 .args(["-extract", "CFBundleShortVersionString", "raw", "-o", "-"])
-                .arg(path.join("Contents/Info.plist"))
+                .arg(&plist)
                 .output()
-                .ok()?;
-            out.status.success().then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty());
+            if let Ok(mut c) = CACHE.lock() {
+                c.get_or_insert_with(Default::default).insert(plist, (stamp, v.clone()));
+            }
+            v
         }
         #[cfg(not(target_os = "macos"))]
         {

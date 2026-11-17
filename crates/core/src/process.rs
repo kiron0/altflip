@@ -204,21 +204,29 @@ pub fn run_capture(bin: &Path, args: &[&str], envs: &[(&str, &Path)], timeout: D
         cmd.env(k, v);
     }
     let mut child = cmd.spawn().map_err(|e| Error::Platform(format!("Cannot run {}: {e}", bin.display())))?;
+    let reader = child.stdout.take().map(|mut out| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = out.read_to_end(&mut buf);
+            String::from_utf8_lossy(&buf).into_owned()
+        })
+    });
     let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) if start.elapsed() > timeout => {
                 let _ = child.kill();
+                let _ = child.wait();
                 return Err(Error::Platform(format!("{} did not respond in time", bin.display())));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(e) => return Err(Error::Platform(e.to_string())),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::Platform(e.to_string()));
+            }
         }
     }
-    let mut s = String::new();
-    if let Some(mut out) = child.stdout.take() {
-        let _ = out.read_to_string(&mut s);
-    }
-    Ok(s)
+    Ok(reader.and_then(|h| h.join().ok()).unwrap_or_default())
 }

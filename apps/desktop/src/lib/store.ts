@@ -48,7 +48,7 @@ export function applyTheme(theme: Settings["theme"]) {
   try {
     localStorage.setItem("altflip.theme", theme);
   } catch {
-    return;
+    void 0;
   }
   const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";

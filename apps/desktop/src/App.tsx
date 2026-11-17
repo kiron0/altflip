@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Plus, RefreshCw } from "lucide-react";
 import { AccountsIcon, ActivityIcon, BackIcon, DashboardIcon, SettingsIcon, UsageIcon } from "@/components/NavIcons";
 import { api, type AppInfo } from "@/lib/api";
@@ -48,7 +49,19 @@ function SummaryCard({ isMac }: { isMac: boolean }) {
 }
 
 export function App() {
-  const { page, navigate, load, settings, loading, overview, openAdd, settingsTab, setSettingsTab } = useApp();
+  const { page, navigate, load, settings, loading, overview, openAdd, settingsTab, setSettingsTab } = useApp(
+    useShallow((s) => ({
+      page: s.page,
+      navigate: s.navigate,
+      load: s.load,
+      settings: s.settings,
+      loading: s.loading,
+      overview: s.overview,
+      openAdd: s.openAdd,
+      settingsTab: s.settingsTab,
+      setSettingsTab: s.setSettingsTab,
+    })),
+  );
   const [lastPage, setLastPage] = useState<Page>("dashboard");
   useEffect(() => {
     if (page !== "settings") {
