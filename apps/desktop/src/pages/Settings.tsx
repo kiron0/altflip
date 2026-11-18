@@ -135,17 +135,26 @@ function BackupDialog({ mode, onClose }: { mode: "export" | "import" | null; onC
   );
 }
 
+let statusLineCache: StatusLineState | null = null;
+
 function ClaudeStatusLineRow({ disabled }: { disabled: boolean }) {
   const toast = useApp((s) => s.toast);
-  const [st, setSt] = useState<StatusLineState | null>(null);
+  const [st, setSt] = useState<StatusLineState | null>(statusLineCache);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    void api.claudeStatusLine().then(setSt).catch(() => setSt(null));
+    void api
+      .claudeStatusLine()
+      .then((v) => {
+        statusLineCache = v;
+        setSt(v);
+      })
+      .catch(() => setSt(null));
   }, []);
   const toggle = async (on: boolean) => {
     setBusy(true);
     try {
-      setSt(await api.setClaudeStatusLine(on));
+      statusLineCache = await api.setClaudeStatusLine(on);
+      setSt(statusLineCache);
       toast({ kind: "success", text: on ? "Claude Code status line installed" : "Claude Code status line removed" });
     } catch (e) {
       toast({ kind: "error", text: "Could not change Claude Code's status line", detail: errorText(e) });

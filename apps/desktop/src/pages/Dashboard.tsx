@@ -160,15 +160,25 @@ function EmptyOverview() {
   );
 }
 
+const recentCache: { marker: string | undefined; items: SwitchView[] } = { marker: undefined, items: [] };
+
 export function Dashboard() {
   const overview = useApp((s) => s.overview);
   const navigate = useApp((s) => s.navigate);
   const openAdd = useApp((s) => s.openAdd);
-  const [recent, setRecent] = useState<SwitchView[]>([]);
+  const marker = overview?.activityMarker;
+  const [recent, setRecent] = useState<SwitchView[]>(recentCache.items);
 
   useEffect(() => {
-    void api.history(6).then(setRecent).catch(() => undefined);
-  }, [overview?.generatedAt]);
+    if (marker === undefined || recentCache.marker === marker) return;
+    void api
+      .history(6)
+      .then((items) => {
+        Object.assign(recentCache, { marker, items });
+        setRecent(items);
+      })
+      .catch(() => undefined);
+  }, [marker]);
 
   if (!overview) return null;
   const shown = overview.providers.filter((p) => p.accounts.length > 0);

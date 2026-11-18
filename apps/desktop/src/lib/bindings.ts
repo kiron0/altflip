@@ -50,7 +50,7 @@ export type LoginLine = { loginId: string, line: string, };
 
 export type Notice = { text: string, detail: string, };
 
-export type Overview = { providers: Array<ProviderState>, incomplete: Array<SwitchRecord>, credentialStore: SecretStoreStatus, generatedAt: string, stats: OverviewStats, };
+export type Overview = { providers: Array<ProviderState>, incomplete: Array<SwitchRecord>, credentialStore: SecretStoreStatus, generatedAt: string, activityMarker: string, stats: OverviewStats, };
 
 export type OverviewStats = { accounts: number, tools: number, toolsText: string, activeSelections: number, activePercent: number, attention: number, needsReview: boolean, usageWindowRolled: boolean, };
 

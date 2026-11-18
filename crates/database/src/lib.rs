@@ -675,6 +675,16 @@ impl Store {
         tx.commit().map_err(db_err)
     }
 
+    pub fn activity_marker(&self) -> Result<String> {
+        self.conn
+            .query_row(
+                "SELECT (SELECT COALESCE(MAX(id), 0) FROM activity) || ':' || COUNT(*) || ':' || COALESCE(MAX(COALESCE(completed_at, started_at)), '') || ':' || COALESCE(SUM(LENGTH(status)), 0) FROM switch_history",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db_err)
+    }
+
     pub fn activity(&self, limit: i64) -> Result<Vec<ActivityRow>> {
         let mut stmt = self.conn.prepare_cached("SELECT * FROM activity ORDER BY id DESC LIMIT ?1").map_err(db_err)?;
         let rows = stmt

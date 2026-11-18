@@ -5,7 +5,6 @@ import {
   ChevronDown,
   Copy,
   KeyRound,
-  RefreshCw,
   Search,
   Settings2,
   ShieldAlert,
@@ -177,20 +176,33 @@ function ItemRow({ item, open, onToggle, onUndo }: { item: FeedItem; open: boole
   );
 }
 
+const cache: {
+  query: string;
+  provider: ProviderId | "all";
+  category: Category | "all";
+  range: Range;
+  key: string;
+  marker: string | undefined;
+  at: number;
+  feed: Feed | null;
+} = { query: "", provider: "all", category: "all", range: "30", key: "", marker: undefined, at: 0, feed: null };
+
 export function ActivityPage() {
-  const generatedAt = useApp((s) => s.overview?.generatedAt);
+  const marker = useApp((s) => s.overview?.activityMarker);
   const toast = useApp((s) => s.toast);
-  const [feed, setFeed] = useState<Feed | null>(null);
   const [undo, setUndo] = useState<SwitchView | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [provider, setProvider] = useState<ProviderId | "all">("all");
-  const [category, setCategory] = useState<Category | "all">("all");
-  const [range, setRange] = useState<Range>("30");
+  const [query, setQuery] = useState(cache.query);
+  const [provider, setProvider] = useState<ProviderId | "all">(cache.provider);
+  const [category, setCategory] = useState<Category | "all">(cache.category);
+  const [range, setRange] = useState<Range>(cache.range);
+  const key = JSON.stringify([query, provider, category, range]);
+  const [feed, setFeed] = useState<Feed | null>(cache.key === key ? cache.feed : null);
   const seq = useRef(0);
 
   const reload = () => {
     const n = ++seq.current;
+    const m = marker;
     return api
       .feed({
         query,
@@ -199,14 +211,19 @@ export function ActivityPage() {
         rangeDays: range === "all" ? 0 : Number(range),
       })
       .then((f) => {
-        if (n === seq.current) setFeed(f);
+        if (n !== seq.current) return;
+        Object.assign(cache, { key, marker: m, at: Date.now(), feed: f });
+        setFeed(f);
       })
       .catch(() => undefined);
   };
 
   useEffect(() => {
-    void reload();
-  }, [generatedAt, query, provider, category, range]);
+    Object.assign(cache, { query, provider, category, range });
+    if (cache.key === key && cache.marker === marker && cache.feed && Date.now() - cache.at < 60000) return;
+    const t = setTimeout(() => void reload(), cache.key === key ? 0 : 150);
+    return () => clearTimeout(t);
+  }, [marker, key]);
 
   const clear = () => {
     setQuery("");
@@ -223,11 +240,6 @@ export function ActivityPage() {
       <PageHeader
         title="Activity"
         subtitle="Every switch and account event on this device, with what happened and how long it took. No tokens or passwords are recorded."
-        actions={
-          <Button onClick={() => void reload()}>
-            <RefreshCw /> Reload
-          </Button>
-        }
       />
       <RecoveryBanner />
 

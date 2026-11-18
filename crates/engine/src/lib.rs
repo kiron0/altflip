@@ -117,6 +117,7 @@ pub struct Overview {
     pub incomplete: Vec<SwitchRecord>,
     pub credential_store: SecretStoreStatus,
     pub generated_at: String,
+    pub activity_marker: String,
     pub stats: view::OverviewStats,
 }
 
@@ -421,6 +422,7 @@ impl Engine {
             })
             .collect();
         let incomplete = db.incomplete_switches()?;
+        let activity_marker = db.activity_marker()?;
         let inputs: Vec<view::StatInput> = out
             .iter()
             .map(|p| view::StatInput {
@@ -437,6 +439,7 @@ impl Engine {
             incomplete,
             credential_store: self.secrets.status(),
             generated_at: now_rfc3339(),
+            activity_marker,
             stats,
         })
     }
@@ -1109,21 +1112,25 @@ impl Engine {
     }
 
     pub fn refresh_usage(&self) -> Result<Vec<UsageRow>> {
-        self.refresh_usage_with(false)
+        self.refresh_usage_with(false, None)
     }
 
-    pub fn refresh_usage_with(&self, force: bool) -> Result<Vec<UsageRow>> {
-        let _running = match self.usage_lock.try_lock() {
-            Ok(g) => g,
-            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => return self.db().latest_usage(),
+    pub fn refresh_usage_with(&self, force: bool, only: Option<ProviderId>) -> Result<Vec<UsageRow>> {
+        let _running = if force {
+            self.usage_lock.lock().unwrap_or_else(|e| e.into_inner())
+        } else {
+            match self.usage_lock.try_lock() {
+                Ok(g) => g,
+                Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => return self.db().latest_usage(),
+            }
         };
         let settings = self.settings()?;
         if !settings.usage_monitoring {
             return self.db().latest_usage();
         }
         let live_on = settings.live_usage;
-        for p in &self.providers {
+        for p in self.providers.iter().filter(|p| only.is_none_or(|id| id == p.id())) {
             let mut readings = p.usage();
             let mut stale_sources: Vec<(Option<String>, &str)> = Vec::new();
             match p.id() {

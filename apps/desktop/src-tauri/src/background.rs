@@ -1,5 +1,5 @@
 use crate::{notify, tray, AppState};
-use altflip_core::{AuthHealth, Result};
+use altflip_core::{AuthHealth, ProviderId, Result};
 use altflip_engine::UsageRow;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
@@ -65,12 +65,12 @@ pub fn refresh_soon(app: &AppHandle) {
 }
 
 pub fn refresh_usage(app: &AppHandle) -> Result<Vec<UsageRow>> {
-    refresh_usage_with(app, false)
+    refresh_usage_with(app, false, None)
 }
 
-pub fn refresh_usage_with(app: &AppHandle, force: bool) -> Result<Vec<UsageRow>> {
+pub fn refresh_usage_with(app: &AppHandle, force: bool, only: Option<ProviderId>) -> Result<Vec<UsageRow>> {
     let state = app.state::<AppState>();
-    let rows = state.engine.refresh_usage_with(force)?;
+    let rows = state.engine.refresh_usage_with(force, only)?;
     let _ = app.emit("altflip://usage", &rows);
     let settings = state.engine.settings()?;
     if settings.notifications && settings.notify_usage {

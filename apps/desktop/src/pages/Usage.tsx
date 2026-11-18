@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import { Info, RefreshCw } from "lucide-react";
-import { api, errorText, type AccountView, type UsageView } from "@/lib/api";
+import type { AccountView, UsageView } from "@/lib/api";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/PageHeader";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { Button } from "@/components/ui/button";
 import { Badge, Card, Meter } from "@/components/ui/primitives";
 
 function Reading({ u, showCountdown }: { u: UsageView; showCountdown: boolean }) {
@@ -28,21 +26,26 @@ function Reading({ u, showCountdown }: { u: UsageView; showCountdown: boolean })
   );
 }
 
-function Freshness({ account, busy, onRefresh }: { account: AccountView; busy: boolean; onRefresh: () => void }) {
+function Freshness({ account, busy, spinning, onRefresh }: { account: AccountView; busy: boolean; spinning: boolean; onRefresh: () => void }) {
   const f = account.freshness;
-  if (!f) return null;
   return (
     <div className="mt-3 flex items-center gap-1.5 text-[11px] text-faint">
-      <span className={cn("size-1.5 rounded-full", f.stale ? "bg-warn" : "bg-ok", !f.stale && "animate-pulse")} aria-hidden />
-      <span title={`Source: ${f.source}`}>{f.text}</span>
+      {f ? (
+        <>
+          <span className={cn("size-1.5 rounded-full", f.stale ? "bg-warn" : "bg-ok", !f.stale && "animate-pulse")} aria-hidden />
+          <span title={`Source: ${f.source}`}>{f.text}</span>
+        </>
+      ) : (
+        <span>Not checked yet</span>
+      )}
       <button
         type="button"
         className="ml-0.5 rounded p-0.5 hover:text-text disabled:opacity-50"
-        aria-label="Refresh usage"
+        aria-label="Refresh this provider's usage"
         disabled={busy}
         onClick={onRefresh}
       >
-        <RefreshCw className={cn("size-3", busy && "animate-spin")} />
+        <RefreshCw className={cn("size-3", spinning && "animate-spin")} />
       </button>
     </div>
   );
@@ -51,38 +54,9 @@ function Freshness({ account, busy, onRefresh }: { account: AccountView; busy: b
 export function UsagePage() {
   const overview = useApp((s) => s.overview);
   const settings = useApp((s) => s.settings);
-  const toast = useApp((s) => s.toast);
-  const load = useApp((s) => s.load);
-  const [busy, setBusy] = useState(false);
-  const first = useRef(true);
-  const lastAuto = useRef(0);
-
-  const refresh = async (quiet = false) => {
-    setBusy(true);
-    try {
-      const notice = await api.refreshUsage();
-      await load(false);
-      if (!quiet && notice) toast({ kind: "info", text: notice.text, detail: notice.detail });
-    } catch (e) {
-      if (!quiet) toast({ kind: "error", text: "Could not refresh usage", detail: errorText(e) });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    if (first.current && settings?.usageMonitoring) {
-      first.current = false;
-      void refresh(true);
-    }
-  }, [settings?.usageMonitoring]);
-
-  const rolled = !!overview?.stats.usageWindowRolled;
-  useEffect(() => {
-    if (!rolled || !settings?.usageMonitoring || busy || Date.now() - lastAuto.current < 60000) return;
-    lastAuto.current = Date.now();
-    void refresh(true);
-  }, [rolled, overview?.generatedAt, settings?.usageMonitoring]);
+  const usageBusy = useApp((s) => s.usageBusy);
+  const refreshingAll = useApp((s) => s.refreshingAll);
+  const refreshProvider = useApp((s) => s.refreshProvider);
 
   if (!overview) return null;
   const providers = overview.providers.filter((p) => p.info.installed || p.accounts.length);
@@ -90,15 +64,7 @@ export function UsagePage() {
 
   return (
     <>
-      <PageHeader
-        title="Usage"
-        subtitle="Only usage reported by each provider is shown. Nothing here is estimated."
-        actions={
-          <Button disabled={busy || !settings?.usageMonitoring} onClick={() => void refresh()}>
-            <RefreshCw className={cn(busy && "animate-spin")} /> Refresh
-          </Button>
-        }
-      />
+      <PageHeader title="Usage" subtitle="Only usage reported by each provider is shown. Nothing here is estimated." />
       {settings?.usageMonitoring && !settings.liveUsage && (
         <div className="rounded-[20px] bg-surface-2 px-5 py-4 text-[13px] text-muted">
           Live usage is off, so Claude and Codex show local estimates that can be hours old. Turn on Live usage in Settings for exact numbers.
@@ -141,7 +107,12 @@ export function UsagePage() {
                         ))}
                       </div>
                     )}
-                    <Freshness account={a} busy={busy} onRefresh={() => void refresh()} />
+                    <Freshness
+                      account={a}
+                      busy={refreshingAll || !!usageBusy[p.info.id] || !settings?.usageMonitoring}
+                      spinning={refreshingAll || !!usageBusy[p.info.id]}
+                      onRefresh={() => void refreshProvider(p.info.id)}
+                    />
                   </div>
                 </div>
               ))}

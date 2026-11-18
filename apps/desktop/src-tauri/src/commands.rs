@@ -216,9 +216,10 @@ pub async fn undo_switch(state: State<'_, AppState>, app: AppHandle, operation_i
 }
 
 #[tauri::command]
-pub async fn refresh_usage(app: AppHandle) -> Result<Option<Notice>> {
+pub async fn refresh_usage(app: AppHandle, provider_id: Option<String>) -> Result<Option<Notice>> {
+    let only = provider_id.as_deref().map(provider).transpose()?;
     blocking(move || {
-        background::refresh_usage_with(&app, true)?;
+        background::refresh_usage_with(&app, true, only)?;
         Ok(app.state::<AppState>().engine.usage_notice())
     })
     .await

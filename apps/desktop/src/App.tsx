@@ -74,7 +74,8 @@ export function App() {
     return () => window.removeEventListener("keydown", onEsc);
   }, [page, lastPage, navigate]);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshing = useApp((s) => s.refreshingAll);
+  const refreshAll = useApp((s) => s.refreshAll);
   const isMac = info?.os === "macos";
 
   useEffect(() => {
@@ -91,12 +92,12 @@ export function App() {
         navigate("settings");
       } else if (e.key.toLowerCase() === "r") {
         e.preventDefault();
-        void load(true);
+        void refreshAll();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [load, navigate]);
+  }, [load, navigate, refreshAll]);
 
   if (loading && !overview) {
     return (
@@ -118,19 +119,14 @@ export function App() {
 
   const attention = (overview?.incomplete.length ?? 0) > 0 || (overview?.providers ?? []).some((p) => p.activationState === "drifted");
 
-  const refresh = async () => {
-    setRefreshing(true);
-    await load(true);
-    setRefreshing(false);
-  };
-
   return (
     <div className="app-shell">
       <header data-tauri-drag-region className="app-titlebar">
         <div data-tauri-drag-region className="flex-1" />
         <button
           type="button"
-          onClick={() => void refresh()}
+          onClick={() => void refreshAll()}
+          disabled={refreshing}
           title="Refresh (⌘R)"
           aria-label="Refresh"
           className="inline-flex size-8.5 items-center justify-center rounded-full border border-border bg-card text-muted shadow-item transition-colors hover:text-text"
