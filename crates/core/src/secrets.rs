@@ -1,6 +1,7 @@
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use ts_rs::TS;
 
 pub trait SecretStore: Send + Sync {
     fn get(&self, service: &str, account: &str) -> Result<Option<Vec<u8>>>;
@@ -9,7 +10,8 @@ pub trait SecretStore: Send + Sync {
     fn status(&self) -> SecretStoreStatus;
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SecretStoreStatus {
     pub backend: String,
@@ -83,7 +85,8 @@ mod imp {
         if v.last() == Some(&b'\n') {
             v.pop();
         }
-        if stored_as_binary(service, account)? {
+        let maybe_hex = !v.is_empty() && v.len() % 2 == 0 && v.iter().all(u8::is_ascii_hexdigit);
+        if maybe_hex && stored_as_binary(service, account)? {
             let raw = hex::decode(&v)
                 .map_err(|_| Error::Credential(format!("Keychain item {service} could not be decoded")))?;
             return Ok(Some(raw));

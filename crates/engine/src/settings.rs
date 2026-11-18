@@ -1,17 +1,21 @@
-use altflip_core::{Error, ProviderId, Result};
+use altflip_core::{Error, Result};
 use altflip_database::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub onboarded: bool,
+    #[ts(type = "\"system\" | \"light\" | \"dark\"")]
     pub theme: String,
     pub launch_at_login: bool,
     pub start_minimized: bool,
     pub close_to_tray: bool,
     pub show_dock_icon: bool,
+    #[ts(type = "\"popover\" | \"dashboard\"")]
     pub tray_click: String,
     pub global_shortcut: Option<String>,
     pub notifications: bool,
@@ -23,7 +27,6 @@ pub struct Settings {
     pub usage_threshold: u64,
     pub show_reset_countdowns: bool,
     pub warn_running_sessions: bool,
-    pub experimental_antigravity: bool,
     pub live_usage: bool,
     pub diagnostic_level: String,
 }
@@ -47,19 +50,9 @@ pub fn default_settings() -> Value {
         "usageThreshold": 80,
         "showResetCountdowns": true,
         "warnRunningSessions": true,
-        "experimentalAntigravity": false,
         "liveUsage": true,
         "diagnosticLevel": "info"
     })
-}
-
-impl Settings {
-    pub fn experimental_enabled(&self, p: ProviderId) -> bool {
-        match p {
-            ProviderId::Antigravity => self.experimental_antigravity,
-            _ => true,
-        }
-    }
 }
 
 pub fn load(db: &Store) -> Result<Settings> {
@@ -98,9 +91,7 @@ mod tests {
     #[test]
     fn defaults_load_and_validate() {
         let db = Store::open_in_memory().unwrap();
-        let s = load(&db).unwrap();
-        assert!(!s.experimental_antigravity);
-        assert!(s.experimental_enabled(ProviderId::Codex));
+        load(&db).unwrap();
         assert!(validate("theme", &json!("dark")).is_ok());
         assert!(validate("theme", &json!("neon")).is_err());
         assert!(validate("notifications", &json!("yes")).is_err());

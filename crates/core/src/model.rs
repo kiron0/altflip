@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, TS)]
+#[ts(export_to = "bindings.ts")]
 pub enum ProviderId {
     #[serde(rename = "claude-code")]
     Claude,
@@ -9,20 +11,16 @@ pub enum ProviderId {
     Codex,
     #[serde(rename = "antigravity")]
     Antigravity,
-    #[serde(rename = "opencode")]
-    OpenCode,
 }
 
 impl ProviderId {
-    pub const ALL: [ProviderId; 4] =
-        [ProviderId::Claude, ProviderId::Codex, ProviderId::Antigravity, ProviderId::OpenCode];
+    pub const ALL: [ProviderId; 3] = [ProviderId::Claude, ProviderId::Codex, ProviderId::Antigravity];
 
     pub fn as_str(&self) -> &'static str {
         match self {
             ProviderId::Claude => "claude-code",
             ProviderId::Codex => "codex",
             ProviderId::Antigravity => "antigravity",
-            ProviderId::OpenCode => "opencode",
         }
     }
 
@@ -31,7 +29,6 @@ impl ProviderId {
             ProviderId::Claude => "Claude Code",
             ProviderId::Codex => "Codex",
             ProviderId::Antigravity => "Antigravity",
-            ProviderId::OpenCode => "OpenCode",
         }
     }
 
@@ -46,7 +43,8 @@ impl std::fmt::Display for ProviderId {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Identity {
     pub key: String,
@@ -63,7 +61,8 @@ impl Identity {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum Compatibility {
     Supported,
@@ -73,7 +72,8 @@ pub enum Compatibility {
     NotInstalled,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum SwitchMode {
     Immediate,
@@ -83,7 +83,8 @@ pub enum SwitchMode {
     Unsupported,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum Support {
     Yes,
@@ -91,7 +92,8 @@ pub enum Support {
     Conditional,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     pub multiple_accounts: bool,
@@ -103,7 +105,8 @@ pub struct Capabilities {
     pub restart_required: Support,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessInfo {
     pub pid: u32,
@@ -112,7 +115,8 @@ pub struct ProcessInfo {
     pub kind: ProcessKind,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum ProcessKind {
     Cli,
@@ -121,7 +125,8 @@ pub enum ProcessKind {
     Helper,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInfo {
     pub id: ProviderId,
@@ -132,13 +137,13 @@ pub struct ProviderInfo {
     pub config_path: Option<PathBuf>,
     pub compatibility: Compatibility,
     pub compatibility_note: Option<String>,
-    pub experimental: bool,
     pub capabilities: Capabilities,
     pub processes: Vec<ProcessInfo>,
     pub switch_mode: SwitchMode,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum AuthHealth {
     Ok,
@@ -170,7 +175,8 @@ impl AuthHealth {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UsageReading {
     pub usage_type: String,

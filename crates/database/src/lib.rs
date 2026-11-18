@@ -2,6 +2,7 @@ use altflip_core::{now_rfc3339, AuthHealth, Error, ProviderId, Result, UsageRead
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use ts_rs::TS;
 
 const MIGRATIONS: &[&str] = &[
     r#"
@@ -103,13 +104,27 @@ CREATE INDEX idx_usage_account ON usage_snapshots(account_id, observed_at DESC);
     r#"
 DELETE FROM usage_snapshots;
 "#,
+    r#"
+DELETE FROM recovery_snapshots WHERE provider_id = 'opencode';
+DELETE FROM switch_history WHERE provider_id = 'opencode';
+DELETE FROM active_accounts WHERE provider_id = 'opencode';
+DELETE FROM usage_snapshots WHERE provider_id = 'opencode';
+DELETE FROM accounts WHERE provider_id = 'opencode';
+DELETE FROM activity WHERE provider_id = 'opencode';
+DELETE FROM providers WHERE id = 'opencode';
+"#,
 ];
+
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(d).map(Some)
+}
 
 fn db_err(e: rusqlite::Error) -> Error {
     Error::Database(e.to_string())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AccountRow {
     pub id: String,
@@ -143,7 +158,8 @@ pub struct ActiveRow {
     pub verified_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchRecord {
     pub id: String,
@@ -171,7 +187,8 @@ pub struct RecoveryRow {
     pub status: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ActivityRow {
     pub id: i64,
@@ -182,7 +199,8 @@ pub struct ActivityRow {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct UsageRow {
     pub account_id: String,
@@ -192,10 +210,12 @@ pub struct UsageRow {
     pub retrieved_at: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export_to = "bindings.ts", optional_fields)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountPatch {
     pub label: Option<String>,
+    #[serde(default, deserialize_with = "present")]
     pub category: Option<Option<String>>,
     pub favorite: Option<bool>,
     pub sort_order: Option<i64>,
@@ -278,6 +298,7 @@ impl Store {
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")
             .map_err(db_err)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(db_err)?;
         let mut store = Store { conn };
         store.migrate()?;
         for p in ProviderId::ALL {
@@ -310,7 +331,8 @@ impl Store {
     pub fn update_provider(&self, p: ProviderId, version: Option<&str>, compat: &str) -> Result<()> {
         self.conn
             .execute(
-                "UPDATE providers SET installed_version = ?2, compatibility_status = ?3, last_detected_at = ?4, integration_version = ?5 WHERE id = ?1",
+                "UPDATE providers SET installed_version = ?2, compatibility_status = ?3, last_detected_at = ?4, integration_version = ?5
+                 WHERE id = ?1 AND (installed_version IS NOT ?2 OR compatibility_status IS NOT ?3 OR integration_version IS NOT ?5 OR last_detected_at IS NULL)",
                 params![p.as_str(), version, compat, now_rfc3339(), env!("CARGO_PKG_VERSION")],
             )
             .map_err(db_err)?;
@@ -320,7 +342,7 @@ impl Store {
     pub fn accounts(&self, provider: Option<ProviderId>) -> Result<Vec<AccountRow>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT * FROM accounts WHERE (?1 IS NULL OR provider_id = ?1) ORDER BY provider_id, favorite DESC, sort_order, created_at",
             )
             .map_err(db_err)?;
@@ -404,6 +426,13 @@ impl Store {
         Ok(())
     }
 
+    pub fn set_plan(&self, id: &str, plan: &str) -> Result<()> {
+        self.conn
+            .execute("UPDATE accounts SET subscription_type = ?2 WHERE id = ?1", params![id, plan])
+            .map_err(db_err)?;
+        Ok(())
+    }
+
     pub fn set_health(&self, id: &str, health: AuthHealth) -> Result<()> {
         self.conn
             .execute("UPDATE accounts SET health = ?2 WHERE id = ?1", params![id, health.as_str()])
@@ -451,7 +480,7 @@ impl Store {
     }
 
     pub fn active(&self) -> Result<Vec<ActiveRow>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM active_accounts").map_err(db_err)?;
+        let mut stmt = self.conn.prepare_cached("SELECT * FROM active_accounts").map_err(db_err)?;
         let rows = stmt
             .query_map([], |r| {
                 Ok(ActiveRow {
@@ -535,8 +564,10 @@ impl Store {
     }
 
     pub fn switch_history(&self, limit: i64) -> Result<Vec<SwitchRecord>> {
-        let mut stmt =
-            self.conn.prepare("SELECT * FROM switch_history ORDER BY started_at DESC LIMIT ?1").map_err(db_err)?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT * FROM switch_history ORDER BY started_at DESC LIMIT ?1")
+            .map_err(db_err)?;
         let rows = stmt.query_map(params![limit], switch_from).map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
@@ -579,7 +610,9 @@ impl Store {
     pub fn recoveries(&self, status: Option<&str>) -> Result<Vec<RecoveryRow>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM recovery_snapshots WHERE (?1 IS NULL OR status = ?1) ORDER BY created_at DESC")
+            .prepare_cached(
+                "SELECT * FROM recovery_snapshots WHERE (?1 IS NULL OR status = ?1) ORDER BY created_at DESC",
+            )
             .map_err(db_err)?;
         let rows = stmt
             .query_map(params![status], |r| {
@@ -604,7 +637,7 @@ impl Store {
     pub fn incomplete_switches(&self) -> Result<Vec<SwitchRecord>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT * FROM switch_history WHERE status IN ('started', 'applying') ORDER BY started_at")
+            .prepare_cached("SELECT * FROM switch_history WHERE status IN ('started', 'applying') ORDER BY started_at")
             .map_err(db_err)?;
         let rows = stmt.query_map([], switch_from).map_err(db_err)?;
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
@@ -617,14 +650,43 @@ impl Store {
                 params![now_rfc3339(), provider.map(|p| p.as_str()), account_id, kind, message],
             )
             .map_err(db_err)?;
-        self.conn
-            .execute("DELETE FROM activity WHERE id NOT IN (SELECT id FROM activity ORDER BY id DESC LIMIT 2000)", [])
-            .map_err(db_err)?;
+        let id = self.conn.last_insert_rowid();
+        if id % 100 == 0 {
+            self.conn
+                .prepare_cached("DELETE FROM activity WHERE id <= ?1")
+                .and_then(|mut s| s.execute(params![id - 2000]))
+                .map_err(db_err)?;
+        }
         Ok(())
     }
 
+    pub fn reorder(&self, provider: ProviderId, ids: &[String]) -> Result<()> {
+        let tx = self.conn.unchecked_transaction().map_err(db_err)?;
+        {
+            let mut stmt = tx
+                .prepare_cached("UPDATE accounts SET sort_order = ?3 WHERE id = ?1 AND provider_id = ?2")
+                .map_err(db_err)?;
+            for (i, id) in ids.iter().enumerate() {
+                if stmt.execute(params![id, provider.as_str(), i as i64]).map_err(db_err)? != 1 {
+                    return Err(Error::Invalid("Accounts belong to different providers".into()));
+                }
+            }
+        }
+        tx.commit().map_err(db_err)
+    }
+
+    pub fn activity_marker(&self) -> Result<String> {
+        self.conn
+            .query_row(
+                "SELECT (SELECT COALESCE(MAX(id), 0) FROM activity) || ':' || COUNT(*) || ':' || COALESCE(MAX(COALESCE(completed_at, started_at)), '') || ':' || COALESCE(SUM(LENGTH(status)), 0) FROM switch_history",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db_err)
+    }
+
     pub fn activity(&self, limit: i64) -> Result<Vec<ActivityRow>> {
-        let mut stmt = self.conn.prepare("SELECT * FROM activity ORDER BY id DESC LIMIT ?1").map_err(db_err)?;
+        let mut stmt = self.conn.prepare_cached("SELECT * FROM activity ORDER BY id DESC LIMIT ?1").map_err(db_err)?;
         let rows = stmt
             .query_map(params![limit], |r| {
                 let p: Option<String> = r.get("provider_id")?;
@@ -641,13 +703,26 @@ impl Store {
         rows.collect::<rusqlite::Result<_>>().map_err(db_err)
     }
 
+    pub fn add_usage_many(&self, provider: ProviderId, rows: &[(String, &UsageReading)]) -> Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.unchecked_transaction().map_err(db_err)?;
+        for (account_id, u) in rows {
+            self.add_usage(provider, account_id, u)?;
+        }
+        tx.commit().map_err(db_err)
+    }
+
     pub fn add_usage(&self, provider: ProviderId, account_id: &str, u: &UsageReading) -> Result<()> {
         self.conn
-            .execute(
+            .prepare_cached(
                 "INSERT OR IGNORE INTO usage_snapshots (provider_id, account_id, usage_type, label, used_percent, used_value, limit_value,
                  window_minutes, reset_at, data_source, confidence, observed_at, retrieved_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-                params![
+            )
+            .and_then(|mut s| {
+                s.execute(params![
                     provider.as_str(),
                     account_id,
                     u.usage_type,
@@ -661,8 +736,8 @@ impl Store {
                     u.confidence,
                     u.observed_at,
                     now_rfc3339()
-                ],
-            )
+                ])
+            })
             .map_err(db_err)?;
         Ok(())
     }
@@ -694,7 +769,7 @@ impl Store {
     pub fn latest_usage(&self) -> Result<Vec<UsageRow>> {
         let mut stmt = self
             .conn
-            .prepare(
+            .prepare_cached(
                 "SELECT u.* FROM usage_snapshots u JOIN (
                     SELECT account_id, usage_type, MAX(observed_at) AS m FROM usage_snapshots GROUP BY account_id, usage_type
                  ) l ON l.account_id = u.account_id AND l.usage_type = u.usage_type AND l.m = u.observed_at",
@@ -726,7 +801,7 @@ impl Store {
     }
 
     pub fn settings(&self) -> Result<serde_json::Map<String, serde_json::Value>> {
-        let mut stmt = self.conn.prepare("SELECT key, value FROM app_settings").map_err(db_err)?;
+        let mut stmt = self.conn.prepare_cached("SELECT key, value FROM app_settings").map_err(db_err)?;
         let rows = stmt
             .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
             .map_err(db_err)?
@@ -823,6 +898,32 @@ mod tests {
         let rows = s.latest_usage().unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].reading.used_percent, Some(20.0));
+    }
+
+    #[test]
+    fn patch_null_category_clears_it() {
+        let p: AccountPatch = serde_json::from_str(r#"{"category":null}"#).unwrap();
+        assert_eq!(p.category, Some(None));
+        let p: AccountPatch = serde_json::from_str(r#"{"label":"x"}"#).unwrap();
+        assert_eq!(p.category, None);
+    }
+
+    #[test]
+    fn reorder_is_atomic_and_provider_scoped() {
+        let s = Store::open_in_memory().unwrap();
+        s.insert_account("a", &new(ProviderId::Claude, "k1")).unwrap();
+        s.insert_account("b", &new(ProviderId::Claude, "k2")).unwrap();
+        s.insert_account("c", &new(ProviderId::Codex, "k3")).unwrap();
+        s.reorder(ProviderId::Claude, &["b".into(), "a".into()]).unwrap();
+        assert_eq!(s.account("b").unwrap().sort_order, 0);
+        assert_eq!(s.account("a").unwrap().sort_order, 1);
+        assert!(s.reorder(ProviderId::Claude, &["a".into(), "c".into()]).is_err());
+        assert_eq!(s.account("a").unwrap().sort_order, 1);
+        for i in 0..2105 {
+            s.log(None, None, "t", &format!("m{i}")).unwrap();
+        }
+        let n = s.activity(5000).unwrap().len();
+        assert!((2000..=2100).contains(&n));
     }
 
     #[test]

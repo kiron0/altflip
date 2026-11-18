@@ -26,6 +26,10 @@ interface State {
   confirm: SwitchPlan | null;
   addFor: ProviderId | "any" | null;
   load: (refresh?: boolean) => Promise<void>;
+  usageBusy: Partial<Record<ProviderId, boolean>>;
+  refreshingAll: boolean;
+  refreshProvider: (id: ProviderId) => Promise<void>;
+  refreshAll: () => Promise<void>;
   navigate: (p: Page, focusAccount?: string | null) => void;
   settingsTab: SettingsTab;
   setSettingsTab: (t: SettingsTab) => void;
@@ -48,7 +52,7 @@ export function applyTheme(theme: Settings["theme"]) {
   try {
     localStorage.setItem("altflip.theme", theme);
   } catch {
-    return;
+    void 0;
   }
   const dark = theme === "dark" || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -78,6 +82,41 @@ export const useApp = create<State>((set, get) => ({
     } catch (e) {
       set({ loading: false });
       get().toast({ kind: "error", text: "Could not load accounts", detail: errorText(e) });
+    }
+  },
+
+  usageBusy: {},
+  refreshingAll: false,
+
+  refreshProvider: async (id) => {
+    if (get().usageBusy[id] || get().refreshingAll) return;
+    set((s) => ({ usageBusy: { ...s.usageBusy, [id]: true } }));
+    try {
+      const notice = await api.refreshUsage(id);
+      await get().load(false);
+      if (notice) get().toast({ kind: "info", text: notice.text, detail: notice.detail });
+    } catch (e) {
+      get().toast({ kind: "error", text: "Could not refresh usage", detail: errorText(e) });
+    } finally {
+      set((s) => ({ usageBusy: { ...s.usageBusy, [id]: false } }));
+    }
+  },
+
+  refreshAll: async () => {
+    if (get().refreshingAll) return;
+    set({ refreshingAll: true });
+    try {
+      const usage = get().settings?.usageMonitoring
+        ? api.refreshUsage().catch((e) => {
+            get().toast({ kind: "error", text: "Could not refresh usage", detail: errorText(e) });
+            return null;
+          })
+        : Promise.resolve(null);
+      const [, notice] = await Promise.all([get().load(true), usage]);
+      await get().load(false);
+      if (notice) get().toast({ kind: "info", text: notice.text, detail: notice.detail });
+    } finally {
+      set({ refreshingAll: false });
     }
   },
 
@@ -112,8 +151,7 @@ export const useApp = create<State>((set, get) => ({
         get().toast({ kind: "warning", text: `Can't switch to ${plan.label}`, detail: plan.blocked });
         return;
       }
-      const warn = get().settings?.warnRunningSessions ?? true;
-      if (plan.requiresConfirmation || (warn && plan.warnings.length > 0)) {
+      if (plan.needsConfirm) {
         set({ confirm: plan });
         return;
       }
@@ -127,11 +165,10 @@ export const useApp = create<State>((set, get) => ({
     set({ confirm: null });
     try {
       const out = await api.switchAccount(accountId, confirmRestart);
-      const extra = out.restarted.length ? ` Reopened ${out.restarted.join(", ")}.` : "";
       get().toast({
         kind: out.status === "succeeded" || out.status === "already-active" ? "success" : "info",
         text: out.message,
-        detail: (out.verification ?? "") + extra || undefined,
+        detail: out.detail ?? undefined,
       });
       return true;
     } catch (e) {
@@ -163,16 +200,19 @@ export function wireEvents() {
   wired = true;
   const s = useApp.setState;
   void listen<Overview>("altflip://overview", (e) => s((st) => (fresher(e.payload, st.overview) ? { overview: e.payload } : {})));
+  const pull = () =>
+    void api
+      .overview(false)
+      .then((overview) => s((st) => (fresher(overview, st.overview) ? { overview } : {})))
+      .catch(() => undefined);
   let usageTimer: ReturnType<typeof setTimeout> | undefined;
   void listen("altflip://usage", () => {
     clearTimeout(usageTimer);
-    usageTimer = setTimeout(() => {
-      void api
-        .overview(false)
-        .then((overview) => s((st) => (fresher(overview, st.overview) ? { overview } : {})))
-        .catch(() => undefined);
-    }, 150);
+    usageTimer = setTimeout(pull, 150);
   });
+  setInterval(() => {
+    if (document.visibilityState === "visible") pull();
+  }, 30000);
   void listen<Settings>("altflip://settings", (e) => {
     applyTheme(e.payload.theme);
     s({ settings: e.payload });

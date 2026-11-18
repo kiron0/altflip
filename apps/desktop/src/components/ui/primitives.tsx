@@ -3,6 +3,7 @@ import { forwardRef, useCallback, useEffect, useId, useLayoutEffect, useMemo, us
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Badge as BadgeData } from "@/lib/api";
 
 const badgeVariants = cva("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11.5px] font-medium leading-4 whitespace-nowrap", {
   variants: {
@@ -21,6 +22,14 @@ const badgeVariants = cva("inline-flex items-center gap-1 rounded-md px-1.5 py-0
 
 export function Badge({ className, tone, ...props }: HTMLAttributes<HTMLSpanElement> & VariantProps<typeof badgeVariants>) {
   return <span className={cn(badgeVariants({ tone }), className)} {...props} />;
+}
+
+export function Tag({ badge, className }: { badge: BadgeData | null | undefined; className?: string }) {
+  return badge ? (
+    <Badge tone={badge.tone} className={className}>
+      {badge.text}
+    </Badge>
+  ) : null;
 }
 
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {

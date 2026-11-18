@@ -3,13 +3,12 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { Copy, Download, FolderOpen, RotateCcw, Upload } from "lucide-react";
 import { api, errorText, type AppInfo, type Settings, type StatusLineState } from "@/lib/api";
-import { relativeTime } from "@/lib/utils";
 import { useApp } from "@/lib/store";
 import { PageHeader } from "@/components/PageHeader";
 import { ProviderIcon } from "@/components/ProviderIcon";
-import { compatText, compatTone, modeShort } from "@/components/labels";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, Field, Input, SectionLabel, Segmented, Select, Switch } from "@/components/ui/primitives";
+import { UsageOnlyButton } from "@/components/UsageOnly";
+import { Badge, Card, Dialog, Field, Input, SectionLabel, Segmented, Select, Switch, Tag } from "@/components/ui/primitives";
 import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
 function Section({ title, right, children }: { title?: string; right?: React.ReactNode; children: React.ReactNode }) {
@@ -137,17 +136,26 @@ function BackupDialog({ mode, onClose }: { mode: "export" | "import" | null; onC
   );
 }
 
+let statusLineCache: StatusLineState | null = null;
+
 function ClaudeStatusLineRow({ disabled }: { disabled: boolean }) {
   const toast = useApp((s) => s.toast);
-  const [st, setSt] = useState<StatusLineState | null>(null);
+  const [st, setSt] = useState<StatusLineState | null>(statusLineCache);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    void api.claudeStatusLine().then(setSt).catch(() => setSt(null));
+    void api
+      .claudeStatusLine()
+      .then((v) => {
+        statusLineCache = v;
+        setSt(v);
+      })
+      .catch(() => setSt(null));
   }, []);
   const toggle = async (on: boolean) => {
     setBusy(true);
     try {
-      setSt(await api.setClaudeStatusLine(on));
+      statusLineCache = await api.setClaudeStatusLine(on);
+      setSt(statusLineCache);
       toast({ kind: "success", text: on ? "Claude Code status line installed" : "Claude Code status line removed" });
     } catch (e) {
       toast({ kind: "error", text: "Could not change Claude Code's status line", detail: errorText(e) });
@@ -155,16 +163,8 @@ function ClaudeStatusLineRow({ disabled }: { disabled: boolean }) {
       setBusy(false);
     }
   };
-  const hint = !st?.installed
-    ? "Claude Code reports usage to its status line after every reply. AltFlip adds a small script there so the Usage page updates instantly and never waits on Anthropic."
-    : [
-        st.lastReadingAt ? `Last reading ${relativeTime(st.lastReadingAt)}.` : "Waiting for the next Claude Code reply.",
-        st.chainedCommand ? `Your previous status line still runs: ${st.chainedCommand}` : null,
-      ]
-        .filter(Boolean)
-        .join(" ");
   return (
-    <Row label="Instant usage from Claude Code" hint={hint}>
+    <Row label="Instant usage from Claude Code" hint={st?.summary ?? ""}>
       <Switch
         label="Instant usage from Claude Code"
         checked={!!st?.installed}
@@ -252,12 +252,10 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
                 <Badge tone="ok">Always on</Badge>
               </Row>
             </Section>
-            <Section title="Experimental">
-              <Toggle
-                k="experimentalAntigravity"
-                label="Antigravity switching"
-                hint="Switches the Google sign-in shared by the Antigravity app, agy CLI and IDE 2.6+. Running Antigravity apps are restarted after you confirm."
-              />
+            <Section title="Antigravity">
+              <Row label="Antigravity switching" hint="AltFlip shows Antigravity usage but doesn't switch its accounts.">
+                <UsageOnlyButton />
+              </Row>
             </Section>
           </>
         )}
@@ -350,12 +348,12 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
         {tab === "tools" && (
           <>
             {overview?.providers.map((p) => (
-              <Section key={p.info.id} title={p.info.name} right={<Badge tone={compatTone[p.info.compatibility]}>{compatText[p.info.compatibility]}</Badge>}>
+              <Section key={p.info.id} title={p.info.name} right={<Tag badge={p.compatBadge} />}>
                 <div className="flex items-center gap-3 py-3.5">
                   <ProviderIcon id={p.info.id} size={30} />
                   <div className="min-w-0 flex-1">
                     <div className="text-[13px] font-medium">{p.info.installed ? `Version ${p.info.version ?? "unknown"}` : "Not installed"}</div>
-                    <div className="text-[12px] text-faint">{modeShort[p.info.switchMode]}</div>
+                    <div className="text-[12px] text-faint">{p.modeLabel}</div>
                   </div>
                   <span className="font-mono text-[11px] text-faint">
                     {p.accounts.length} saved

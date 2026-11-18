@@ -1,8 +1,11 @@
 mod backup;
 mod settings;
+mod view;
 
 pub use altflip_database::{AccountPatch, AccountRow, ActivityRow, SwitchRecord, UsageRow};
 pub use settings::{default_settings, Settings};
+use ts_rs::TS;
+pub use view::{Feed, FeedQuery, Notice, SwitchView, UsageView};
 
 use altflip_core::resource::{ResourceIo, Snapshot};
 use altflip_core::secrets::{SecretStore, SecretStoreStatus};
@@ -31,7 +34,6 @@ pub fn sign_in_hint(provider: ProviderId) -> &'static str {
         ProviderId::Claude => "Run claude auth login in Terminal to sign in first.",
         ProviderId::Codex => "Run codex login in Terminal to sign in first.",
         ProviderId::Antigravity => "Open Antigravity and sign in first.",
-        ProviderId::OpenCode => "Run opencode auth login in Terminal to sign in first.",
     }
 }
 
@@ -51,10 +53,12 @@ pub struct Engine {
     usage_errors: Mutex<HashMap<String, String>>,
     last_live: Mutex<HashMap<String, std::time::Instant>>,
     live_cache: Mutex<HashMap<ProviderId, LiveRead>>,
+    usage_lock: Mutex<()>,
     data_dir: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AccountView {
     #[serde(flatten)]
@@ -62,13 +66,26 @@ pub struct AccountView {
     pub active: bool,
     pub activation_state: Option<String>,
     pub verified_at: Option<String>,
-    pub usage: Vec<UsageRow>,
+    pub usage: Vec<UsageView>,
     pub usage_error: Option<String>,
+    pub row_state: view::RowState,
+    pub state_badge: Option<altflip_core::text::Badge>,
+    pub plan_label: Option<String>,
+    pub subtitle: String,
+    pub health_badge: altflip_core::text::Badge,
+    pub needs_sign_in: bool,
+    pub inline_usage: Option<view::InlineUsage>,
+    pub freshness: Option<view::Freshness>,
+    pub added_text: String,
+    pub last_used_text: String,
+    pub captured_text: String,
+    pub verified_text: Option<String>,
 }
 
 type LiveRead = (Option<LiveAccount>, Option<String>);
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct LiveAccount {
     pub identity: Identity,
@@ -76,7 +93,8 @@ pub struct LiveAccount {
     pub saved_account_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderState {
     pub info: ProviderInfo,
@@ -87,18 +105,24 @@ pub struct ProviderState {
     pub live_error: Option<String>,
     pub switching_enabled: bool,
     pub switching_disabled_reason: Option<String>,
+    #[serde(flatten)]
+    pub text: view::ProviderText,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Overview {
     pub providers: Vec<ProviderState>,
     pub incomplete: Vec<SwitchRecord>,
     pub credential_store: SecretStoreStatus,
     pub generated_at: String,
+    pub activity_marker: String,
+    pub stats: view::OverviewStats,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchPlan {
     pub provider: ProviderId,
@@ -111,6 +135,10 @@ pub struct SwitchPlan {
     pub restart_apps: Vec<String>,
     pub running_sessions: usize,
     pub warnings: Vec<String>,
+    pub needs_confirm: bool,
+    pub title: String,
+    pub description: String,
+    pub confirm_label: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -119,7 +147,8 @@ pub struct SwitchOptions {
     pub confirm_restart: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct SwitchOutcome {
     pub operation_id: Option<String>,
@@ -131,9 +160,11 @@ pub struct SwitchOutcome {
     pub verification: Option<String>,
     pub restarted: Vec<String>,
     pub running_sessions: usize,
+    pub detail: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct Progress {
     pub provider: ProviderId,
@@ -142,7 +173,8 @@ pub struct Progress {
     pub message: String,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "kebab-case")]
 pub enum RecoveryAction {
     RestorePrevious,
@@ -188,6 +220,7 @@ impl Engine {
             usage_errors: Mutex::new(HashMap::new()),
             last_live: Mutex::new(HashMap::new()),
             live_cache: Mutex::new(HashMap::new()),
+            usage_lock: Mutex::new(()),
             data_dir,
         }
     }
@@ -226,7 +259,11 @@ impl Engine {
     }
 
     fn raw_capture(&self, p: &Arc<dyn Provider>) -> Result<Snapshot> {
-        p.raw_capture()
+        let mut resources = Vec::new();
+        for (loc, role) in p.locators() {
+            resources.push(p.ctx().io.capture(loc, role)?);
+        }
+        Ok(Snapshot::new(p.id(), Identity::default(), resources))
     }
 
     pub fn settings(&self) -> Result<Settings> {
@@ -261,11 +298,11 @@ impl Engine {
         if !self.secrets.status().available {
             return Some("The system credential store is unavailable".into());
         }
-        if p.experimental() && !self.settings().map(|s| s.experimental_enabled(p.id())).unwrap_or(false) {
-            return Some(format!(
-                "{} switching is experimental. Turn it on in Settings › Switching to use it.",
-                info.name
-            ));
+        if !info.capabilities.account_switching {
+            return Some(match p.id() {
+                ProviderId::Antigravity => altflip_core::ANTIGRAVITY_USAGE_ONLY.into(),
+                _ => format!("{} supports usage only", info.name),
+            });
         }
         None
     }
@@ -329,7 +366,7 @@ impl Engine {
     }
 
     pub fn overview(&self, refresh_live: bool) -> Result<Overview> {
-        let mut out = Vec::new();
+        let mut states = Vec::new();
         for p in &self.providers {
             let info = p.info();
             let compat = serde_json::to_value(info.compatibility)?;
@@ -350,49 +387,81 @@ impl Engine {
                 self.reconcile_active(p.id(), live.as_ref())?;
             }
             let gate = self.switching_gate(p, &info);
-            out.push(ProviderState {
-                accounts: self.account_views(Some(p.id()))?,
-                active_account_id: None,
-                activation_state: None,
-                live,
-                live_error,
-                switching_enabled: gate.is_none(),
-                switching_disabled_reason: gate,
-                info,
-            });
+            states.push((info, live, live_error, gate));
+        }
+        let mut views: HashMap<ProviderId, Vec<AccountView>> = HashMap::new();
+        for v in self.account_views(None)? {
+            views.entry(v.row.provider).or_default().push(v);
         }
         let db = self.db();
-        for st in out.iter_mut() {
-            if let Some(a) = db.active_for(st.info.id)? {
-                st.active_account_id = Some(a.account_id);
-                st.activation_state = Some(a.activation_state);
-            }
-        }
+        let active = db.active()?;
+        let out: Vec<ProviderState> = states
+            .into_iter()
+            .map(|(info, live, live_error, gate)| {
+                let a = active.iter().find(|a| a.provider == info.id);
+                let accounts = views.remove(&info.id).unwrap_or_default();
+                let text = view::provider_text(
+                    &info,
+                    &accounts,
+                    a.map(|a| a.account_id.as_str()),
+                    a.map(|a| a.activation_state.as_str()),
+                    live.as_ref(),
+                    live_error.as_deref(),
+                );
+                ProviderState {
+                    accounts,
+                    active_account_id: a.map(|a| a.account_id.clone()),
+                    activation_state: a.map(|a| a.activation_state.clone()),
+                    live,
+                    live_error,
+                    switching_enabled: gate.is_none(),
+                    switching_disabled_reason: gate,
+                    info,
+                    text,
+                }
+            })
+            .collect();
+        let incomplete = db.incomplete_switches()?;
+        let activity_marker = db.activity_marker()?;
+        let inputs: Vec<view::StatInput> = out
+            .iter()
+            .map(|p| view::StatInput {
+                installed: p.info.installed,
+                activation_state: p.activation_state.as_deref(),
+                has_active: p.active_account_id.is_some(),
+                accounts: &p.accounts,
+            })
+            .collect();
+        let stats = view::overview_stats(&inputs, incomplete.len(), chrono::Utc::now());
+        drop(inputs);
         Ok(Overview {
             providers: out,
-            incomplete: db.incomplete_switches()?,
+            incomplete,
             credential_store: self.secrets.status(),
             generated_at: now_rfc3339(),
+            activity_marker,
+            stats,
         })
     }
 
     pub fn account_views(&self, provider: Option<ProviderId>) -> Result<Vec<AccountView>> {
-        let db = self.db();
-        let active = db.active()?;
-        let usage = db.latest_usage()?;
-        Ok(db
-            .accounts(provider)?
+        let (active, usage, rows) = {
+            let db = self.db();
+            (db.active()?, db.latest_usage()?, db.accounts(provider)?)
+        };
+        let errors = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut by_account: HashMap<String, Vec<UsageRow>> = HashMap::new();
+        for u in usage {
+            by_account.entry(u.account_id.clone()).or_default().push(u);
+        }
+        let now = chrono::Utc::now();
+        Ok(rows
             .into_iter()
             .map(|row| {
                 let a = active.iter().find(|a| a.account_id == row.id);
-                AccountView {
-                    active: a.is_some(),
-                    activation_state: a.map(|a| a.activation_state.clone()),
-                    verified_at: a.and_then(|a| a.verified_at.clone()),
-                    usage: usage.iter().filter(|u| u.account_id == row.id).cloned().collect(),
-                    usage_error: self.usage_error(&row.id),
-                    row,
-                }
+                let usage = by_account.remove(&row.id).unwrap_or_default();
+                let err = errors.get(&row.id).cloned();
+                view::account_view(row, a, usage, err, now)
             })
             .collect())
     }
@@ -499,28 +568,6 @@ impl Engine {
         Ok(row)
     }
 
-    pub fn import_accounts(&self, provider: ProviderId) -> Result<Vec<AccountRow>> {
-        let p = self.provider(provider)?;
-        let _guard = self.lock(provider)?;
-        let snaps = p.import()?;
-        let live_key = p.capture()?.map(|l| l.identity.key);
-        let mut out = Vec::new();
-        for snap in snaps {
-            let health = p.health(&snap);
-            let (row, created) = self.upsert(&snap, None, None, health)?;
-            let db = self.db();
-            if live_key.as_deref() == Some(snap.identity.key.as_str()) {
-                db.set_active(provider, &row.id, "verified", true)?;
-            }
-            if created {
-                db.log(Some(provider), Some(&row.id), "added", &format!("Imported {} from {provider}", row.label))?;
-            }
-            drop(db);
-            out.push(row);
-        }
-        Ok(out)
-    }
-
     pub fn login_new(
         &self,
         provider: ProviderId,
@@ -548,9 +595,9 @@ impl Engine {
             }
         }
         let cancel = Arc::new(AtomicBool::new(false));
-        self.logins.lock().unwrap().insert(login_id.to_string(), cancel.clone());
+        self.logins.lock().unwrap_or_else(|e| e.into_inner()).insert(login_id.to_string(), cancel.clone());
         let res = p.login(&cancel, out);
-        self.logins.lock().unwrap().remove(login_id);
+        self.logins.lock().unwrap_or_else(|e| e.into_inner()).remove(login_id);
         let snap = res?;
         let health = p.health(&snap);
         let (row, created) = self.upsert(&snap, label, category, health)?;
@@ -567,7 +614,7 @@ impl Engine {
     }
 
     pub fn cancel_login(&self, login_id: &str) {
-        if let Some(c) = self.logins.lock().unwrap().get(login_id) {
+        if let Some(c) = self.logins.lock().unwrap_or_else(|e| e.into_inner()).get(login_id) {
             c.store(true, Ordering::SeqCst);
         }
     }
@@ -583,14 +630,7 @@ impl Engine {
     }
 
     pub fn reorder(&self, provider: ProviderId, ids: &[String]) -> Result<()> {
-        let db = self.db();
-        for (i, id) in ids.iter().enumerate() {
-            if db.account(id)?.provider != provider {
-                return Err(Error::Invalid("Accounts belong to different providers".into()));
-            }
-            db.patch_account(id, &AccountPatch { sort_order: Some(i as i64), ..Default::default() })?;
-        }
-        Ok(())
+        self.db().reorder(provider, ids)
     }
 
     pub fn remove_account(&self, id: &str) -> Result<()> {
@@ -653,6 +693,14 @@ impl Engine {
                 "This account's saved sign-in may have expired. You may need to sign in again after switching.".into(),
             );
         }
+        let warn = self.settings().map(|s| s.warn_running_sessions).unwrap_or(true);
+        let requires_confirmation = !restart.is_empty();
+        let needs_confirm = requires_confirmation || (warn && !warnings.is_empty());
+        let title = if requires_confirmation {
+            format!("Restart {}?", restart.join(" and "))
+        } else {
+            format!("Switch {} to {}?", info.name, acct.label)
+        };
         Ok(SwitchPlan {
             provider: acct.provider,
             account_id: acct.id,
@@ -660,10 +708,14 @@ impl Engine {
             mode: info.switch_mode,
             already_active,
             blocked,
-            requires_confirmation: !restart.is_empty(),
+            requires_confirmation,
             restart_apps: restart,
             running_sessions,
             warnings,
+            needs_confirm,
+            title,
+            description: view::mode_text(info.switch_mode).into(),
+            confirm_label: if requires_confirmation { "Restart and switch".into() } else { "Switch".into() },
         })
     }
 
@@ -702,6 +754,7 @@ impl Engine {
                 verification: None,
                 restarted: vec![],
                 running_sessions: 0,
+                detail: None,
             });
         }
         let restart = p.restart_targets(&info.processes);
@@ -761,8 +814,9 @@ impl Engine {
             say("closing", format!("Closing {names}"));
             for t in &restart {
                 if let Err(e) = process::request_quit(t) {
-                    self.abort_before_apply(&op, &e)?;
+                    let aborted = self.abort_before_apply(&op, &e);
                     self.reopen(&closed);
+                    aborted?;
                     return Err(e);
                 }
                 if let Some(path) = &t.path {
@@ -780,19 +834,25 @@ impl Engine {
                     "{} did not close. Nothing was changed. Close it yourself (it may be asking to save work) and try again.",
                     info.name
                 ));
-                self.abort_before_apply(&op, &e)?;
+                let aborted = self.abort_before_apply(&op, &e);
+                self.reopen(&closed);
+                aborted?;
                 return Err(e);
             }
         }
 
-        self.db().set_switch_status(&op, "applying")?;
+        if let Err(e) = self.db().set_switch_status(&op, "applying") {
+            let _ = self.abort_before_apply(&op, &e);
+            self.reopen(&closed);
+            return Err(e);
+        }
         say("activating", format!("Activating {}", acct.label));
         let result = p.apply(&target).and_then(|_| {
             say("verifying", "Verifying the active account".into());
             p.verify(&target)
         });
 
-        let outcome = match result {
+        let outcome = (|| match result {
             Ok(verification) => {
                 let state = if running_sessions > 0 { "new-sessions" } else { "verified" };
                 let db = self.db();
@@ -815,6 +875,7 @@ impl Engine {
                     verification: Some(verification),
                     restarted: vec![],
                     running_sessions,
+                    detail: None,
                 })
             }
             Err(e) => {
@@ -864,7 +925,7 @@ impl Engine {
                     }
                 }
             }
-        };
+        })();
 
         if !closed.is_empty() {
             say("reopening", "Reopening apps".into());
@@ -872,6 +933,11 @@ impl Engine {
         let reopened = self.reopen(&closed);
         self.prune_recoveries(10);
         outcome.map(|mut o| {
+            let mut detail = o.verification.clone().unwrap_or_default();
+            if !reopened.is_empty() {
+                detail.push_str(&format!(" Reopened {}.", reopened.join(", ")));
+            }
+            o.detail = (!detail.trim().is_empty()).then(|| detail.trim().to_string());
             o.restarted = reopened;
             o
         })
@@ -997,20 +1063,73 @@ impl Engine {
         self.db().switch_history(limit)
     }
 
+    pub fn history_views(&self, limit: i64) -> Result<Vec<SwitchView>> {
+        let all = self.db().switch_history(limit.max(100))?;
+        let undoable = view::undoable_ids(&all);
+        let now = chrono::Utc::now();
+        Ok(all
+            .into_iter()
+            .take(limit.max(0) as usize)
+            .map(|r| {
+                let u = undoable.contains(&r.id);
+                view::switch_view(r, u, now)
+            })
+            .collect())
+    }
+
+    pub fn activity_feed(&self, q: &FeedQuery) -> Result<Feed> {
+        let (history, log, labels) = {
+            let db = self.db();
+            let labels: HashMap<String, String> = db.accounts(None)?.into_iter().map(|a| (a.id, a.label)).collect();
+            (db.switch_history(500)?, db.activity(1000)?, labels)
+        };
+        Ok(view::feed(history, log, |id| labels.get(id).cloned(), q, chrono::Utc::now()))
+    }
+
+    pub fn usage_notice(&self) -> Option<Notice> {
+        let counts = self.db().accounts(None).unwrap_or_default();
+        let infos: Vec<ProviderInfo> = self.providers.iter().map(|p| p.info()).collect();
+        let states: Vec<(&ProviderInfo, usize)> =
+            infos.iter().map(|i| (i, counts.iter().filter(|a| a.provider == i.id).count())).collect();
+        view::unsupported_usage_notice(&states)
+    }
+
+    pub fn move_account(&self, id: &str, delta: i64) -> Result<()> {
+        let acct = self.db().account(id)?;
+        let mut ids: Vec<String> = self.db().accounts(Some(acct.provider))?.into_iter().map(|a| a.id).collect();
+        let Some(i) = ids.iter().position(|x| x == id) else { return Ok(()) };
+        let j = i as i64 + delta;
+        if j < 0 || j >= ids.len() as i64 {
+            return Ok(());
+        }
+        ids.swap(i, j as usize);
+        self.db().reorder(acct.provider, &ids)
+    }
+
     pub fn activity(&self, limit: i64) -> Result<Vec<ActivityRow>> {
         self.db().activity(limit)
     }
 
     pub fn refresh_usage(&self) -> Result<Vec<UsageRow>> {
-        self.refresh_usage_with(false)
+        self.refresh_usage_with(false, None)
     }
 
-    pub fn refresh_usage_with(&self, force: bool) -> Result<Vec<UsageRow>> {
-        if !self.settings()?.usage_monitoring {
+    pub fn refresh_usage_with(&self, force: bool, only: Option<ProviderId>) -> Result<Vec<UsageRow>> {
+        let _running = if force {
+            self.usage_lock.lock().unwrap_or_else(|e| e.into_inner())
+        } else {
+            match self.usage_lock.try_lock() {
+                Ok(g) => g,
+                Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+                Err(std::sync::TryLockError::WouldBlock) => return self.db().latest_usage(),
+            }
+        };
+        let settings = self.settings()?;
+        if !settings.usage_monitoring {
             return self.db().latest_usage();
         }
-        let live_on = self.settings()?.live_usage;
-        for p in &self.providers {
+        let live_on = settings.live_usage;
+        for p in self.providers.iter().filter(|p| only.is_none_or(|id| id == p.id())) {
             let mut readings = p.usage();
             let mut stale_sources: Vec<(Option<String>, &str)> = Vec::new();
             match p.id() {
@@ -1018,11 +1137,15 @@ impl Engine {
                     let local = if p.id() == ProviderId::Claude { CLAUDE_ESTIMATE_SOURCE } else { CODEX_LOG_SOURCE };
                     readings.retain(|r| r.source != local);
                     stale_sources.push((None, local));
-                    readings.extend(self.live_usage(p, force));
+                    readings.extend(self.live_usage(p, force, &HashSet::new()));
                 }
                 ProviderId::Antigravity => {
                     use altflip_providers::antigravity::{live_usage, LIVE_SOURCE, LOCAL_SOURCE};
-                    let live = live_usage();
+                    let mut live = live_usage();
+                    if live_on {
+                        let covered: HashSet<String> = live.iter().filter_map(|r| r.account_key.clone()).collect();
+                        live.extend(self.live_usage(p, force, &covered));
+                    }
                     let keys: HashSet<Option<String>> = live.iter().map(|r| r.account_key.clone()).collect();
                     let had_live: HashSet<String> = self
                         .db()
@@ -1080,6 +1203,7 @@ impl Engine {
                     },
                 }
             };
+            let mut batch = Vec::with_capacity(readings.len());
             for r in &readings {
                 let target = match &r.account_key {
                     Some(key) if key.starts_with("claude-org:") => {
@@ -1095,31 +1219,37 @@ impl Engine {
                     None => account_at(&r.observed_at),
                 };
                 if let Some(id) = target {
-                    db.add_usage(p.id(), &id, r)?;
+                    batch.push((id, r));
                 }
             }
+            db.add_usage_many(p.id(), &batch)?;
         }
         let _ = self.db().prune_usage(7);
         self.db().latest_usage()
     }
 
     fn note_usage_error(&self, row: &AccountRow, err: Option<String>) {
-        let mut map = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner());
-        match err {
-            Some(e) => {
-                if map.get(&row.id) != Some(&e) {
-                    let _ = self.db().log(
-                        Some(row.provider),
-                        Some(&row.id),
-                        "usage",
-                        &format!("Usage for {} unavailable: {e}", row.label),
-                    );
-                    map.insert(row.id.clone(), e);
+        let fresh = {
+            let mut map = self.usage_errors.lock().unwrap_or_else(|e| e.into_inner());
+            match err {
+                Some(e) if map.get(&row.id) != Some(&e) => {
+                    map.insert(row.id.clone(), e.clone());
+                    Some(e)
+                }
+                Some(_) => None,
+                None => {
+                    map.remove(&row.id);
+                    None
                 }
             }
-            None => {
-                map.remove(&row.id);
-            }
+        };
+        if let Some(e) = fresh {
+            let _ = self.db().log(
+                Some(row.provider),
+                Some(&row.id),
+                "usage",
+                &format!("Usage for {} unavailable: {e}", row.label),
+            );
         }
     }
 
@@ -1158,14 +1288,23 @@ impl Engine {
         Ok(renewed)
     }
 
-    fn live_usage(&self, p: &Arc<dyn Provider>, force: bool) -> Vec<altflip_core::UsageReading> {
+    fn live_usage(
+        &self,
+        p: &Arc<dyn Provider>,
+        force: bool,
+        covered: &HashSet<String>,
+    ) -> Vec<altflip_core::UsageReading> {
         let rows = self.db().accounts(Some(p.id())).unwrap_or_default();
         let live = p.capture().ok().flatten();
         let mut out = Vec::new();
+        let mut with_reading: Option<HashSet<String>> = None;
         for row in rows {
+            if covered.contains(&row.account_identifier) {
+                continue;
+            }
             {
                 let mut last = self.last_live.lock().unwrap_or_else(|e| e.into_inner());
-                let every = if p.id() == ProviderId::Claude { 120 } else { 60 };
+                let every = if matches!(p.id(), ProviderId::Claude | ProviderId::Antigravity) { 120 } else { 60 };
                 let min = if force { 15 } else { every };
                 if last.get(&row.id).is_some_and(|t| t.elapsed() < Duration::from_secs(min)) {
                     continue;
@@ -1183,7 +1322,18 @@ impl Engine {
                     };
                     snap.and_then(|s| altflip_providers::codex::live_usage(&s))
                 }
-                ProviderId::Antigravity | ProviderId::OpenCode => continue,
+                ProviderId::Antigravity => {
+                    let snap = match live.as_ref().filter(|l| l.identity.key == row.account_identifier) {
+                        Some(l) => Ok(l.clone()),
+                        None => self.load_snapshot(&row),
+                    };
+                    snap.and_then(|s| altflip_providers::antigravity_cloud::usage(&s, &p.ctx().home)).map(|q| {
+                        if let Some(tier) = q.tier.filter(|t| row.subscription_type.as_deref() != Some(t.as_str())) {
+                            let _ = self.db().set_plan(&row.id, &tier);
+                        }
+                        q.readings
+                    })
+                }
             };
             match res {
                 Ok(mut r) => {
@@ -1194,9 +1344,13 @@ impl Engine {
                     self.note_usage_error(&row, None);
                 }
                 Err(e) => {
-                    let transient = matches!(e, Error::Platform(_));
+                    let transient = matches!(e, Error::Platform(_) | Error::Busy(_));
                     let has_reading = transient
-                        && self.db().latest_usage().unwrap_or_default().iter().any(|u| u.account_id == row.id);
+                        && with_reading
+                            .get_or_insert_with(|| {
+                                self.db().latest_usage().unwrap_or_default().into_iter().map(|u| u.account_id).collect()
+                            })
+                            .contains(&row.id);
                     if has_reading {
                         self.note_usage_error(&row, None);
                     } else if altflip_providers::claude::is_throttled(&e) {

@@ -1,9 +1,9 @@
 pub mod antigravity;
+pub mod antigravity_cloud;
 pub mod claude;
 pub mod claude_status;
 pub mod claude_usage;
 pub mod codex;
-pub mod opencode;
 pub mod pb;
 
 use altflip_core::process;
@@ -38,9 +38,6 @@ pub struct Detection {
 pub trait Provider: Send + Sync {
     fn id(&self) -> ProviderId;
     fn ctx(&self) -> &Ctx;
-    fn experimental(&self) -> bool {
-        false
-    }
     fn capabilities(&self) -> Capabilities;
     fn detection(&self) -> Detection;
     fn locators(&self) -> Vec<(Locator, Role)>;
@@ -73,18 +70,6 @@ pub trait Provider: Send + Sync {
     }
 
     fn normalize(&self, _snap: &mut Snapshot) {}
-
-    fn raw_capture(&self) -> Result<Snapshot> {
-        let mut resources = Vec::new();
-        for (loc, role) in self.locators() {
-            resources.push(self.ctx().io.capture(loc, role)?);
-        }
-        Ok(Snapshot::new(self.id(), Identity::default(), resources))
-    }
-
-    fn import(&self) -> Result<Vec<Snapshot>> {
-        Err(Error::Unsupported(format!("{} cannot import stored sign-ins", self.id())))
-    }
 
     fn apply(&self, snap: &Snapshot) -> Result<()> {
         if snap.provider != self.id() {
@@ -143,7 +128,6 @@ pub trait Provider: Send + Sync {
             config_path: d.config_path,
             compatibility: d.compatibility,
             compatibility_note: d.note,
-            experimental: self.experimental(),
             capabilities: self.capabilities(),
             processes,
             switch_mode,
@@ -155,8 +139,7 @@ pub fn registry(ctx: Ctx) -> Vec<Arc<dyn Provider>> {
     vec![
         Arc::new(claude::Claude::new(ctx.clone())),
         Arc::new(codex::Codex::new(ctx.clone())),
-        Arc::new(antigravity::Antigravity::new(ctx.clone())),
-        Arc::new(opencode::OpenCode::new(ctx)),
+        Arc::new(antigravity::Antigravity::new(ctx)),
     ]
 }
 
@@ -272,7 +255,11 @@ pub(crate) fn run_login(
                 };
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(150)),
-            Err(e) => return Err(Error::Platform(e.to_string())),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Error::Platform(e.to_string()));
+            }
         }
     }
 }

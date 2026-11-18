@@ -659,6 +659,12 @@ body,
 :root[data-os="macos"] .quick-shell {
   box-shadow: var(--glass-shine);
 }
+:root[data-os] .quick-shell.quick-arrow {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--window);
+}
 :root[data-os="windows"] .app-shell {
   background: color-mix(in oklab, var(--window) 86%, transparent);
 }

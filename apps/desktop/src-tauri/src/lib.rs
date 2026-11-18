@@ -76,7 +76,7 @@ fn apply_glass(app: &AppHandle) {
     for (label, radius) in [("main", 0.0), ("quick", 18.0)] {
         let Some(w) = app.get_webview_window(label) else { continue };
         let effect = if cfg!(target_os = "macos") {
-            Some(if label == "quick" { Effect::Popover } else { Effect::Sidebar })
+            (label == "main").then_some(Effect::Sidebar)
         } else if cfg!(target_os = "windows") && label == "main" {
             Some(Effect::Mica)
         } else {
@@ -114,8 +114,9 @@ pub(crate) fn toggle_quick(app: &AppHandle, anchor: Option<Rect>) {
         Some(rect) => {
             let pos = rect.position.to_logical::<f64>(scale);
             let size = rect.size.to_logical::<f64>(scale);
-            let mut x = pos.x + size.width / 2.0 - win.width / 2.0;
-            let mut y = if cfg!(target_os = "macos") { pos.y + size.height + 4.0 } else { pos.y - win.height - 8.0 };
+            let center = pos.x + size.width / 2.0;
+            let mut x = center - win.width / 2.0;
+            let mut y = if cfg!(target_os = "macos") { pos.y + size.height } else { pos.y - win.height - 8.0 };
             if let Ok(Some(m)) = w.current_monitor() {
                 let mp = m.work_area().position.to_logical::<f64>(scale);
                 let ms = m.work_area().size.to_logical::<f64>(scale);
@@ -123,6 +124,7 @@ pub(crate) fn toggle_quick(app: &AppHandle, anchor: Option<Rect>) {
                 y = y.clamp(mp.y + 4.0, (mp.y + ms.height - win.height - 4.0).max(mp.y + 4.0));
             }
             let _ = w.set_position(LogicalPosition::new(x, y));
+            let _ = app.emit_to("quick", "altflip://quick-anchor", center - x);
         }
         None => {
             let _ = w.center();
@@ -299,15 +301,14 @@ pub fn run() {
             commands::start_login,
             commands::cancel_login,
             commands::update_account,
-            commands::reorder_accounts,
             commands::remove_account,
             commands::get_history,
-            commands::get_activity,
+            commands::activity_feed,
+            commands::move_account,
             commands::resolve_incomplete,
             commands::undo_switch,
             commands::refresh_usage,
             commands::claude_status_line,
-            commands::import_accounts,
             commands::set_claude_status_line,
             commands::get_settings,
             commands::set_setting,

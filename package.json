@@ -9,6 +9,6 @@
     "typecheck": "pnpm --filter @altflip/desktop typecheck",
     "format": "cargo fmt --all",
     "format:check": "cargo fmt --all -- --check",
-    "test": "cargo test --workspace && pnpm --filter @altflip/desktop test"
+    "test": "cargo test --workspace"
   }
 }

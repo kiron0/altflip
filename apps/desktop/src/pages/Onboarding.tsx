@@ -25,7 +25,7 @@ export function Onboarding({ isMac }: { isMac: boolean }) {
   const importable = providers.filter((p) => p.info.installed && p.live && !p.live.savedAccountId);
 
   useEffect(() => {
-    setSelected(Object.fromEntries(importable.map((p) => [p.info.id, true])));
+    setSelected((prev) => ({ ...Object.fromEntries(importable.map((p) => [p.info.id, true])), ...prev }));
   }, [overview?.generatedAt]);
 
   const doImport = async () => {
@@ -62,7 +62,7 @@ export function Onboarding({ isMac }: { isMac: boolean }) {
             <img src="/icon.png" alt="" className="mx-auto mb-5 size-20" />
             <h1 className="text-[24px] font-semibold tracking-tight">Manage all your AI coding accounts from one place.</h1>
             <p className="mx-auto mt-3 max-w-[440px] text-[13.5px] text-muted">
-              Save each account once, then switch Claude Code, Codex and Antigravity from the {isMac ? "menu bar" : "system tray"}. Sign-ins stay
+              Save each account once, then switch Claude Code and Codex, and watch Antigravity usage, from the {isMac ? "menu bar" : "system tray"}. Sign-ins stay
               on this computer, encrypted.
             </p>
             <Button variant="primary" size="lg" className="mt-7" onClick={() => setStep(1)}>
@@ -82,7 +82,7 @@ export function Onboarding({ isMac }: { isMac: boolean }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 font-medium">
                       {p.info.name}
-                      {p.info.experimental && p.info.installed && <Badge tone="warn">Experimental</Badge>}
+                      {!p.info.capabilities.accountSwitching && p.info.installed && <Badge tone="neutral">Usage only</Badge>}
                     </div>
                     <div className="truncate text-[12px] text-muted">{p.info.installed ? (p.info.version ?? "Installed") : "Not found"}</div>
                   </div>

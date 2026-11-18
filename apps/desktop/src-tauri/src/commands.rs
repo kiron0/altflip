@@ -1,11 +1,13 @@
 use crate::{background, notify, show_main, tray, AppState};
+use altflip_core::error::ApiError;
 use altflip_core::{Error, ProviderId, Result};
 use altflip_engine::{
-    AccountPatch, AccountRow, ActivityRow, Overview, Progress, RecoveryAction, Settings, SwitchOptions, SwitchOutcome,
-    SwitchPlan, SwitchRecord, UsageRow,
+    AccountPatch, AccountRow, Feed, FeedQuery, Notice, Overview, Progress, RecoveryAction, Settings, SwitchOptions,
+    SwitchOutcome, SwitchPlan, SwitchView,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
+use ts_rs::TS;
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static) -> Result<T> {
     tauri::async_runtime::spawn_blocking(f)
@@ -83,19 +85,6 @@ pub async fn switch_account(app: AppHandle, account_id: String, confirm_restart:
 }
 
 #[tauri::command]
-pub async fn import_accounts(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    provider_id: String,
-) -> Result<Vec<AccountRow>> {
-    let engine = state.engine.clone();
-    let p = provider(&provider_id)?;
-    let rows = blocking(move || engine.import_accounts(p)).await?;
-    broadcast_with(&app, true);
-    Ok(rows)
-}
-
-#[tauri::command]
 pub async fn save_current(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -110,19 +99,21 @@ pub async fn save_current(
     Ok(row)
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
-struct LoginLine {
+pub struct LoginLine {
     login_id: String,
     line: String,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Clone, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
-struct LoginDone {
+pub struct LoginDone {
     login_id: String,
     account: Option<AccountRow>,
-    error: Option<serde_json::Value>,
+    error: Option<ApiError>,
 }
 
 #[tauri::command]
@@ -149,7 +140,7 @@ pub fn start_login(
         };
         let (account, error) = match engine.login_new(p, &id, label, category, &out) {
             Ok(a) => (Some(a), None),
-            Err(e) => (None, serde_json::to_value(&e).ok()),
+            Err(e) => (None, Some(ApiError { code: e.code().into(), message: e.to_string() })),
         };
         let _ = app.emit("altflip://login-done", LoginDone { login_id: id, account, error });
         broadcast(&app);
@@ -176,20 +167,6 @@ pub async fn update_account(
 }
 
 #[tauri::command]
-pub async fn reorder_accounts(
-    state: State<'_, AppState>,
-    app: AppHandle,
-    provider_id: String,
-    ids: Vec<String>,
-) -> Result<()> {
-    let engine = state.engine.clone();
-    let p = provider(&provider_id)?;
-    blocking(move || engine.reorder(p, &ids)).await?;
-    broadcast(&app);
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn remove_account(state: State<'_, AppState>, app: AppHandle, id: String) -> Result<()> {
     let engine = state.engine.clone();
     blocking(move || engine.remove_account(&id)).await?;
@@ -198,15 +175,23 @@ pub async fn remove_account(state: State<'_, AppState>, app: AppHandle, id: Stri
 }
 
 #[tauri::command]
-pub async fn get_history(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<SwitchRecord>> {
+pub async fn get_history(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<SwitchView>> {
     let engine = state.engine.clone();
-    blocking(move || engine.history(limit.unwrap_or(100).clamp(1, 500))).await
+    blocking(move || engine.history_views(limit.unwrap_or(100).clamp(1, 500))).await
 }
 
 #[tauri::command]
-pub async fn get_activity(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<ActivityRow>> {
+pub async fn activity_feed(state: State<'_, AppState>, query: FeedQuery) -> Result<Feed> {
     let engine = state.engine.clone();
-    blocking(move || engine.activity(limit.unwrap_or(200).clamp(1, 2000))).await
+    blocking(move || engine.activity_feed(&query)).await
+}
+
+#[tauri::command]
+pub async fn move_account(state: State<'_, AppState>, app: AppHandle, id: String, delta: i64) -> Result<()> {
+    let engine = state.engine.clone();
+    blocking(move || engine.move_account(&id, delta)).await?;
+    broadcast(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -231,8 +216,13 @@ pub async fn undo_switch(state: State<'_, AppState>, app: AppHandle, operation_i
 }
 
 #[tauri::command]
-pub async fn refresh_usage(app: AppHandle) -> Result<Vec<UsageRow>> {
-    blocking(move || background::refresh_usage_with(&app, true)).await
+pub async fn refresh_usage(app: AppHandle, provider_id: Option<String>) -> Result<Option<Notice>> {
+    let only = provider_id.as_deref().map(provider).transpose()?;
+    blocking(move || {
+        background::refresh_usage_with(&app, true, only)?;
+        Ok(app.state::<AppState>().engine.usage_notice())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -263,9 +253,6 @@ pub fn set_setting(app: AppHandle, key: String, value: serde_json::Value) -> Res
         return Err(e);
     }
     let _ = app.emit("altflip://settings", &settings);
-    if key == "experimentalAntigravity" {
-        broadcast(&app);
-    }
     Ok(settings)
 }
 
@@ -306,7 +293,8 @@ pub async fn diagnostics(state: State<'_, AppState>) -> Result<String> {
     Ok(serde_json::to_string_pretty(&v)?)
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     version: String,
@@ -336,4 +324,36 @@ pub fn hide_quick(app: AppHandle) {
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[cfg(test)]
+mod bindings {
+    use super::*;
+    use altflip_core::{ProviderId, UsageReading};
+    use altflip_engine::StatusLineState;
+
+    #[test]
+    fn export_bindings() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib");
+        let _ = std::fs::remove_file(dir.join("bindings.ts"));
+        let cfg = ts_rs::Config::new().with_out_dir(&dir).with_large_int("number");
+        Overview::export_all(&cfg).unwrap();
+        Settings::export_all(&cfg).unwrap();
+        SwitchPlan::export_all(&cfg).unwrap();
+        SwitchOutcome::export_all(&cfg).unwrap();
+        Progress::export_all(&cfg).unwrap();
+        AccountPatch::export_all(&cfg).unwrap();
+        Feed::export_all(&cfg).unwrap();
+        FeedQuery::export_all(&cfg).unwrap();
+        Notice::export_all(&cfg).unwrap();
+        StatusLineState::export_all(&cfg).unwrap();
+        AppInfo::export_all(&cfg).unwrap();
+        LoginLine::export_all(&cfg).unwrap();
+        LoginDone::export_all(&cfg).unwrap();
+        RecoveryAction::export_all(&cfg).unwrap();
+        ApiError::export_all(&cfg).unwrap();
+        ProviderId::export_all(&cfg).unwrap();
+        UsageReading::export_all(&cfg).unwrap();
+        assert!(dir.join("bindings.ts").is_file());
+    }
 }

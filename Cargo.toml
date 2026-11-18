@@ -15,7 +15,8 @@ altflip-engine = { path = "crates/engine" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde", "unstable-locales"] }
+sys-locale = "0.3"
 ulid = "1"
 sha2 = "0.10"
 hex = "0.4"
@@ -26,6 +27,7 @@ zeroize = "1"
 dirs = "6"
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 tempfile = "3"
+ts-rs = { version = "12", features = ["no-serde-warnings"] }
 
 [profile.dev]
 debug = 0

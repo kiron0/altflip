@@ -58,15 +58,16 @@ impl Error {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorBody<'a> {
-    code: &'a str,
-    message: String,
+#[derive(Debug, Clone, Serialize, ts_rs::TS)]
+#[ts(export_to = "bindings.ts")]
+pub struct ApiError {
+    pub code: String,
+    pub message: String,
 }
 
 impl Serialize for Error {
     fn serialize<S: serde::Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
-        ErrorBody { code: self.code(), message: self.to_string() }.serialize(s)
+        ApiError { code: self.code().into(), message: self.to_string() }.serialize(s)
     }
 }
 

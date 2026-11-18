@@ -1,6 +1,7 @@
 use altflip_core::{fsutil, Error, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use ts_rs::TS;
 
 pub const SCRIPT_NAME: &str = "altflip-status.sh";
 pub const STATUS_DIR: &str = ".altflip-status";
@@ -22,13 +23,15 @@ if [ -s "$o/previous-command" ]; then
 fi
 "#;
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, TS)]
+#[ts(export_to = "bindings.ts")]
 #[serde(rename_all = "camelCase")]
 pub struct StatusLineState {
     pub installed: bool,
     pub script_path: String,
     pub chained_command: Option<String>,
     pub last_reading_at: Option<String>,
+    pub summary: String,
 }
 
 fn script_path(config_dir: &Path) -> PathBuf {
@@ -90,12 +93,29 @@ pub fn state(config_dir: &Path) -> StatusLineState {
     let installed =
         current_command(&settings).is_some_and(|c| c.contains(SCRIPT_NAME)) && script_path(config_dir).is_file();
     let chained = std::fs::read_to_string(previous_path(config_dir)).ok().filter(|c| !c.trim().is_empty());
-    StatusLineState {
+    let mut st = StatusLineState {
         installed,
         script_path: script_path(config_dir).display().to_string(),
         chained_command: if installed { chained } else { None },
+        summary: String::new(),
         last_reading_at: last_reading(config_dir),
+    };
+    st.summary = summary(&st);
+    st
+}
+
+fn summary(st: &StatusLineState) -> String {
+    if !st.installed {
+        return "Claude Code reports usage to its status line after every reply. AltFlip adds a small script there so the Usage page updates instantly and never waits on Anthropic.".into();
     }
+    let mut out = match &st.last_reading_at {
+        Some(t) => format!("Last reading {}.", altflip_core::text::relative_time(Some(t), chrono::Utc::now())),
+        None => "Waiting for the next Claude Code reply.".into(),
+    };
+    if let Some(c) = &st.chained_command {
+        out.push_str(&format!(" Your previous status line still runs: {c}"));
+    }
+    out
 }
 
 pub fn install(config_dir: &Path) -> Result<StatusLineState> {

@@ -6,7 +6,10 @@ pub mod process;
 pub mod resource;
 pub mod secrets;
 pub mod statedb;
+pub mod text;
 pub mod vault;
+
+pub const ANTIGRAVITY_USAGE_ONLY: &str = "Antigravity shows usage only. Switching accounts isn't available for it.";
 
 pub use error::{Error, Result};
 pub use model::*;

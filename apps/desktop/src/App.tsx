@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Plus, RefreshCw } from "lucide-react";
 import { AccountsIcon, ActivityIcon, BackIcon, DashboardIcon, SettingsIcon, UsageIcon } from "@/components/NavIcons";
 import { api, type AppInfo } from "@/lib/api";
@@ -25,22 +26,18 @@ const NAV: { page: Page; label: string; icon: React.ReactNode; hint: string }[] 
 function SummaryCard({ isMac }: { isMac: boolean }) {
   const overview = useApp((s) => s.overview);
   const navigate = useApp((s) => s.navigate);
-  const providers = overview?.providers ?? [];
-  const accounts = providers.reduce((n, p) => n + p.accounts.length, 0);
-  const tools = providers.filter((p) => p.info.installed).length;
-  const active = providers.filter((p) => p.activeAccountId).length;
-  const pct = tools ? Math.round((active / tools) * 100) : 0;
+  const stats = overview?.stats;
   return (
     <button type="button" onClick={() => navigate("accounts")} className="disk w-full text-left">
       <div className="flex items-baseline justify-between text-[13px] font-semibold">
         <span>Your accounts</span>
-        <span className="font-mono text-[11px] font-normal text-faint">{accounts}</span>
+        <span className="font-mono text-[11px] font-normal text-faint">{stats?.accounts ?? 0}</span>
       </div>
       <div className="bar mt-1">
-        <span className="used" style={{ width: `${Math.max(6, pct)}%` }} />
+        <span className="used" style={{ width: `${Math.max(6, stats?.activePercent ?? 0)}%` }} />
       </div>
       <div className="text-[11.5px] text-muted">
-        {active} of {tools} tools have an active account
+        {stats?.activeSelections ?? 0} of {stats?.tools ?? 0} tools have an active account
       </div>
       <div className="text-[11px] text-faint">Encrypted on this {isMac ? "Mac" : "computer"}</div>
     </button>
@@ -48,7 +45,19 @@ function SummaryCard({ isMac }: { isMac: boolean }) {
 }
 
 export function App() {
-  const { page, navigate, load, settings, loading, overview, openAdd, settingsTab, setSettingsTab } = useApp();
+  const { page, navigate, load, settings, loading, overview, openAdd, settingsTab, setSettingsTab } = useApp(
+    useShallow((s) => ({
+      page: s.page,
+      navigate: s.navigate,
+      load: s.load,
+      settings: s.settings,
+      loading: s.loading,
+      overview: s.overview,
+      openAdd: s.openAdd,
+      settingsTab: s.settingsTab,
+      setSettingsTab: s.setSettingsTab,
+    })),
+  );
   const [lastPage, setLastPage] = useState<Page>("dashboard");
   useEffect(() => {
     if (page !== "settings") {
@@ -65,7 +74,8 @@ export function App() {
     return () => window.removeEventListener("keydown", onEsc);
   }, [page, lastPage, navigate]);
   const [info, setInfo] = useState<AppInfo | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const refreshing = useApp((s) => s.refreshingAll);
+  const refreshAll = useApp((s) => s.refreshAll);
   const isMac = info?.os === "macos";
 
   useEffect(() => {
@@ -82,12 +92,12 @@ export function App() {
         navigate("settings");
       } else if (e.key.toLowerCase() === "r") {
         e.preventDefault();
-        void load(true);
+        void refreshAll();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [load, navigate]);
+  }, [load, navigate, refreshAll]);
 
   if (loading && !overview) {
     return (
@@ -109,19 +119,14 @@ export function App() {
 
   const attention = (overview?.incomplete.length ?? 0) > 0 || (overview?.providers ?? []).some((p) => p.activationState === "drifted");
 
-  const refresh = async () => {
-    setRefreshing(true);
-    await load(true);
-    setRefreshing(false);
-  };
-
   return (
     <div className="app-shell">
       <header data-tauri-drag-region className="app-titlebar">
         <div data-tauri-drag-region className="flex-1" />
         <button
           type="button"
-          onClick={() => void refresh()}
+          onClick={() => void refreshAll()}
+          disabled={refreshing}
           title="Refresh (⌘R)"
           aria-label="Refresh"
           className="inline-flex size-8.5 items-center justify-center rounded-full border border-border bg-card text-muted shadow-item transition-colors hover:text-text"
