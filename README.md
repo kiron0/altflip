@@ -1,12 +1,11 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/banner-dark.png" />
-  <img src="assets/screenshots/banner-light.png" alt="AltFlip: every Claude Code, Codex and Antigravity account in your menu bar, with the menu panel and dashboard" />
-</picture>
+<p align="center">
+  <img src="assets/brand/app-icon-1024.png" width="96" height="96" alt="AltFlip icon" />
+</p>
+
+<h1 align="center">AltFlip</h1>
 
 <p align="center">
-  <a href="https://github.com/kiron0/altflip/releases/latest">
-    <img src="https://img.shields.io/github/v/release/kiron0/altflip?label=Download%20AltFlip&style=for-the-badge&color=5A63FF&labelColor=1a1a1a" alt="Download AltFlip" height="38" />
-  </a>
+  Switch between Claude Code and Codex accounts from your menu bar or system tray, and watch every account's usage, Antigravity included.
 </p>
 
 <p align="center">
@@ -17,12 +16,17 @@
 </p>
 
 <p align="center">
-  <b>Switch Claude Code and Codex accounts in one click · See every usage limit live · Antigravity usage included</b>
-  <br />
-  <sub>Free and open source. Everything stays on your computer.</sub>
+  <a href="https://github.com/kiron0/altflip/releases/latest">
+    <img src="https://img.shields.io/github/v/release/kiron0/altflip?label=Download%20AltFlip&style=for-the-badge&color=5A63FF&labelColor=1a1a1a" alt="Download AltFlip" height="38" />
+  </a>
 </p>
 
 ---
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/banner-dark.png" />
+  <img src="assets/screenshots/banner-light.png" alt="AltFlip: every Claude Code, Codex and Antigravity account in your menu bar, with the menu panel and dashboard" />
+</picture>
 
 ## A look inside
 
