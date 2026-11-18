@@ -15,5 +15,4 @@ export default defineConfig({
     host: host || false,
     watch: { ignored: ["**/src-tauri/**"] },
   },
-  test: { environment: "jsdom" },
-} as never);
+});
