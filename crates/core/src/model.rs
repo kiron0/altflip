@@ -137,7 +137,6 @@ pub struct ProviderInfo {
     pub config_path: Option<PathBuf>,
     pub compatibility: Compatibility,
     pub compatibility_note: Option<String>,
-    pub experimental: bool,
     pub capabilities: Capabilities,
     pub processes: Vec<ProcessInfo>,
     pub switch_mode: SwitchMode,

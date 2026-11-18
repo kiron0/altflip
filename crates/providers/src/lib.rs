@@ -38,9 +38,6 @@ pub struct Detection {
 pub trait Provider: Send + Sync {
     fn id(&self) -> ProviderId;
     fn ctx(&self) -> &Ctx;
-    fn experimental(&self) -> bool {
-        false
-    }
     fn capabilities(&self) -> Capabilities;
     fn detection(&self) -> Detection;
     fn locators(&self) -> Vec<(Locator, Role)>;
@@ -131,7 +128,6 @@ pub trait Provider: Send + Sync {
             config_path: d.config_path,
             compatibility: d.compatibility,
             compatibility_note: d.note,
-            experimental: self.experimental(),
             capabilities: self.capabilities(),
             processes,
             switch_mode,

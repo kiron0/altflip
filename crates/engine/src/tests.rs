@@ -9,14 +9,14 @@ struct Fake {
     ctx: Ctx,
     file: PathBuf,
     fail_verify: AtomicBool,
-    experimental: bool,
+    usage_only: bool,
     readings: Mutex<Vec<altflip_core::UsageReading>>,
     broken: AtomicBool,
 }
 
 impl Provider for Fake {
     fn id(&self) -> ProviderId {
-        if self.experimental {
+        if self.usage_only {
             ProviderId::Antigravity
         } else {
             ProviderId::Codex
@@ -25,13 +25,10 @@ impl Provider for Fake {
     fn ctx(&self) -> &Ctx {
         &self.ctx
     }
-    fn experimental(&self) -> bool {
-        self.experimental
-    }
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             multiple_accounts: true,
-            account_switching: true,
+            account_switching: !self.usage_only,
             live_switching: false,
             isolated_login: false,
             login_replaces_current: false,
@@ -92,7 +89,7 @@ struct Harness {
     root: PathBuf,
 }
 
-fn harness(experimental: bool) -> Harness {
+fn harness(usage_only: bool) -> Harness {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
     let secrets: Arc<dyn SecretStore> = Arc::new(MemorySecrets::default());
@@ -100,7 +97,7 @@ fn harness(experimental: bool) -> Harness {
         ctx: Ctx { home: root.clone(), io: ResourceIo::new(secrets.clone()), temp_dir: root.join("tmp") },
         file: root.join("auth.json"),
         fail_verify: AtomicBool::new(false),
-        experimental,
+        usage_only,
         readings: Mutex::new(vec![]),
         broken: AtomicBool::new(false),
     });
@@ -214,17 +211,16 @@ fn concurrent_switch_is_rejected() {
 }
 
 #[test]
-fn experimental_provider_requires_opt_in() {
+fn usage_only_provider_never_switches() {
     let h = harness(true);
     sign_in(&h, "a", "t1");
     let a = h.engine.save_current(ProviderId::Antigravity, None, None).unwrap();
     sign_in(&h, "b", "t2");
     h.engine.save_current(ProviderId::Antigravity, None, None).unwrap();
-    assert!(h.engine.plan_switch(&a.id).unwrap().blocked.is_some());
+    assert_eq!(h.engine.plan_switch(&a.id).unwrap().blocked.as_deref(), Some(altflip_core::ANTIGRAVITY_USAGE_ONLY));
     assert!(matches!(h.engine.switch(&a.id, SwitchOptions::default(), &quiet), Err(Error::Incompatible(_))));
-    h.engine.set_setting("experimentalAntigravity", serde_json::json!(true)).unwrap();
-    assert!(h.engine.plan_switch(&a.id).unwrap().blocked.is_none());
-    assert_eq!(h.engine.switch(&a.id, SwitchOptions::default(), &quiet).unwrap().status, "succeeded");
+    let o = h.engine.overview(false).unwrap();
+    assert!(!o.providers[0].switching_enabled);
 }
 
 #[test]

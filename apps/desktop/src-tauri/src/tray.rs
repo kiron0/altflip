@@ -25,8 +25,11 @@ fn build_menu(app: &AppHandle, overview: Option<&Overview>) -> tauri::Result<Men
         let mut any = false;
         for p in o.providers.iter().filter(|p| p.info.installed || !p.accounts.is_empty()) {
             any = true;
-            let title =
-                if p.info.experimental { format!("{} (experimental)", p.info.name) } else { p.info.name.clone() };
+            let title = if p.info.capabilities.account_switching {
+                p.info.name.clone()
+            } else {
+                format!("{} (usage only)", p.info.name)
+            };
             menu.append(&MenuItem::with_id(app, format!("hdr:{}", p.info.id.as_str()), title, false, None::<&str>)?)?;
             if p.accounts.is_empty() {
                 menu.append(&MenuItem::with_id(
@@ -166,7 +169,7 @@ fn menu_key(o: &Overview) -> String {
             "{}:{}:{}:{}:{:?}:{:?};",
             p.info.id.as_str(),
             p.info.installed,
-            p.info.experimental,
+            p.info.capabilities.account_switching,
             p.switching_enabled,
             p.active_account_id,
             p.activation_state

@@ -250,7 +250,7 @@ export function AddAccountDialog() {
               >
                 <ProviderIcon id={p.info.id} size={24} />
                 {p.info.name}
-                {p.info.experimental && <Badge tone="warn">Experimental</Badge>}
+                {!p.info.capabilities.accountSwitching && <Badge tone="neutral">Usage only</Badge>}
               </button>
             ))}
             {installed.length === 0 && <p className="col-span-3 text-muted">No supported tools are installed.</p>}

@@ -253,9 +253,6 @@ pub fn set_setting(app: AppHandle, key: String, value: serde_json::Value) -> Res
         return Err(e);
     }
     let _ = app.emit("altflip://settings", &settings);
-    if key == "experimentalAntigravity" {
-        broadcast(&app);
-    }
     Ok(settings)
 }
 

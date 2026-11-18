@@ -62,7 +62,7 @@ export type Progress = { provider: ProviderId, accountId: string, stage: string,
 
 export type ProviderId = "claude-code" | "codex" | "antigravity";
 
-export type ProviderInfo = { id: ProviderId, name: string, installed: boolean, version: string | null, binaryPath: string | null, configPath: string | null, compatibility: Compatibility, compatibilityNote: string | null, experimental: boolean, capabilities: Capabilities, processes: Array<ProcessInfo>, switchMode: SwitchMode, };
+export type ProviderInfo = { id: ProviderId, name: string, installed: boolean, version: string | null, binaryPath: string | null, configPath: string | null, compatibility: Compatibility, compatibilityNote: string | null, capabilities: Capabilities, processes: Array<ProcessInfo>, switchMode: SwitchMode, };
 
 export type ProviderOption = { id: ProviderId, name: string, };
 
@@ -74,7 +74,7 @@ export type RowState = "active" | "new-sessions" | "drifted" | "signed-out" | "e
 
 export type SecretStoreStatus = { backend: string, available: boolean, message: string | null, };
 
-export type Settings = { onboarded: boolean, theme: "system" | "light" | "dark", launchAtLogin: boolean, startMinimized: boolean, closeToTray: boolean, showDockIcon: boolean, trayClick: "popover" | "dashboard", globalShortcut: string | null, notifications: boolean, notifySwitch: boolean, notifyUsage: boolean, notifyAuth: boolean, usageMonitoring: boolean, usageRefreshMinutes: number, usageThreshold: number, showResetCountdowns: boolean, warnRunningSessions: boolean, experimentalAntigravity: boolean, liveUsage: boolean, diagnosticLevel: string, };
+export type Settings = { onboarded: boolean, theme: "system" | "light" | "dark", launchAtLogin: boolean, startMinimized: boolean, closeToTray: boolean, showDockIcon: boolean, trayClick: "popover" | "dashboard", globalShortcut: string | null, notifications: boolean, notifySwitch: boolean, notifyUsage: boolean, notifyAuth: boolean, usageMonitoring: boolean, usageRefreshMinutes: number, usageThreshold: number, showResetCountdowns: boolean, warnRunningSessions: boolean, liveUsage: boolean, diagnosticLevel: string, };
 
 export type StatusLineState = { installed: boolean, scriptPath: string, chainedCommand: string | null, lastReadingAt: string | null, summary: string, };
 

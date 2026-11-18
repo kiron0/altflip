@@ -470,8 +470,9 @@ pub fn provider_text(
 ) -> ProviderText {
     let cli = info.processes.iter().filter(|p| p.kind == ProcessKind::Cli).count();
     let apps = info.processes.iter().filter(|p| matches!(p.kind, ProcessKind::App | ProcessKind::Ide)).count();
-    let mut parts =
-        vec![info.version.clone().unwrap_or_else(|| "Version unknown".into()), mode_label(info.switch_mode).into()];
+    let usage_only = !info.capabilities.account_switching;
+    let mode = if usage_only { "Usage only" } else { mode_label(info.switch_mode) };
+    let mut parts = vec![info.version.clone().unwrap_or_else(|| "Version unknown".into()), mode.into()];
     let running: Vec<String> = [(cli, "running session"), (apps, "open app")]
         .into_iter()
         .filter(|(n, _)| *n > 0)
@@ -483,8 +484,12 @@ pub fn provider_text(
     let active = active_account_id.and_then(|id| accounts.iter().find(|a| a.row.id == id));
     let see_all = accounts.len() > 1;
     ProviderText {
-        compat_badge: compat_badge(info.compatibility),
-        mode_label: mode_label(info.switch_mode).into(),
+        compat_badge: if usage_only && info.installed {
+            Badge::new("Usage only", Tone::Neutral)
+        } else {
+            compat_badge(info.compatibility)
+        },
+        mode_label: mode.into(),
         subtitle: parts.join(" · "),
         sign_in_hint: sign_in_hint(info.id).into(),
         usage_supported: usage_supported(info),

@@ -7,7 +7,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { AccountRow, StateBadge } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
-import { Badge, Card, Dialog, Field, Input, Meter, Segmented, Select, Tag } from "@/components/ui/primitives";
+import { UsageOnlyButton } from "@/components/UsageOnly";
+import { Card, Dialog, Field, Input, Meter, Segmented, Select, Tag } from "@/components/ui/primitives";
 
 const CATEGORIES = ["", "Personal", "Work", "University", "Secondary", "Testing"];
 
@@ -58,7 +59,7 @@ function AccountDetails({ account, provider, onClose }: { account: AccountView; 
             <Trash2 /> Remove
           </Button>
           <Button onClick={onClose}>Close</Button>
-          {!isActive && (
+          {!isActive && provider.info.capabilities.accountSwitching && (
             <Button
               variant="primary"
               disabled={!provider.switchingEnabled}
@@ -262,7 +263,7 @@ export function Accounts() {
                 <ProviderIcon id={p.info.id} size={18} />
                 <span className="font-semibold">{p.info.name}</span>
                 <span className="text-[12px] text-muted">{p.accounts.length} saved</span>
-                {p.info.experimental && <Badge tone="warn">Experimental</Badge>}
+                {!p.info.capabilities.accountSwitching && <UsageOnlyButton compact />}
                 <span className="flex-1" />
                 <Button size="sm" variant="ghost" onClick={() => openAdd(p.info.id)}>
                   <Plus /> Add

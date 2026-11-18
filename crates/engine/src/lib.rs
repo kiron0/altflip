@@ -298,11 +298,11 @@ impl Engine {
         if !self.secrets.status().available {
             return Some("The system credential store is unavailable".into());
         }
-        if p.experimental() && !self.settings().map(|s| s.experimental_enabled(p.id())).unwrap_or(false) {
-            return Some(format!(
-                "{} switching is experimental. Turn it on in Settings › Switching to use it.",
-                info.name
-            ));
+        if !info.capabilities.account_switching {
+            return Some(match p.id() {
+                ProviderId::Antigravity => altflip_core::ANTIGRAVITY_USAGE_ONLY.into(),
+                _ => format!("{} supports usage only", info.name),
+            });
         }
         None
     }

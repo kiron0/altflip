@@ -80,7 +80,7 @@ export function AccountRow({
         <Spinner className="text-accent" />
       ) : isActive && !drifted ? (
         <Badge tone="ok">{provider.activationState === "new-sessions" ? "New sessions" : "Active"}</Badge>
-      ) : (
+      ) : !provider.info.capabilities.accountSwitching ? null : (
         <Button
           size="sm"
           variant="secondary"

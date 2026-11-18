@@ -375,14 +375,10 @@ impl Provider for Antigravity {
         &self.ctx
     }
 
-    fn experimental(&self) -> bool {
-        true
-    }
-
     fn capabilities(&self) -> Capabilities {
         Capabilities {
             multiple_accounts: true,
-            account_switching: true,
+            account_switching: false,
             live_switching: false,
             isolated_login: true,
             login_replaces_current: true,
@@ -409,10 +405,8 @@ impl Provider for Antigravity {
             version: (!versions.is_empty()).then(|| versions.join(" · ")),
             binary_path: apps.first().map(|a| a.0.clone()).or(agy),
             config_path: Some(self.gemini_dir()),
-            compatibility: if installed { Compatibility::Experimental } else { Compatibility::NotInstalled },
-            note: installed.then(|| {
-                "Experimental: switches the Antigravity sign-in used by the App, IDE and agy CLI. Running Antigravity apps must restart, and open agent conversations do not move to the new account.".into()
-            }),
+            compatibility: if installed { Compatibility::Supported } else { Compatibility::NotInstalled },
+            note: installed.then(|| altflip_core::ANTIGRAVITY_USAGE_ONLY.into()),
         }
     }
 

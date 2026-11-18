@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AccountRow } from "@/components/AccountRow";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { RecoveryBanner } from "@/components/Dialogs";
+import { UsageOnlyButton } from "@/components/UsageOnly";
 import { Button } from "@/components/ui/button";
 import { Card, Tag } from "@/components/ui/primitives";
 
@@ -66,7 +67,7 @@ function ProviderCard({ p }: { p: ProviderState }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-display text-[15px] font-semibold">{p.info.name}</span>
-            <Tag badge={p.compatBadge} />
+            {p.info.capabilities.accountSwitching ? <Tag badge={p.compatBadge} /> : <UsageOnlyButton compact />}
           </div>
           <div className="truncate text-[11.5px] text-muted">{p.subtitle}</div>
         </div>
@@ -82,7 +83,7 @@ function ProviderCard({ p }: { p: ProviderState }) {
         <div>
           {featured && <AccountRow account={featured} provider={p} onOpen={() => navigate("accounts", featured.id)} />}
         </div>
-        {!p.switchingEnabled && p.switchingDisabledReason && p.accounts.length > 0 && (
+        {p.info.capabilities.accountSwitching && !p.switchingEnabled && p.switchingDisabledReason && p.accounts.length > 0 && (
           <p className="px-2 pb-1 text-[11.5px] text-faint">{p.switchingDisabledReason}</p>
         )}
         <button
@@ -128,7 +129,7 @@ function EmptyOverview() {
       </div>
       <h1 className="font-display text-[26px] font-semibold tracking-tight">Add your first account</h1>
       <p className="mt-2 max-w-[440px] text-[13.5px] leading-relaxed text-muted">
-        Save each AI coding account once, then switch Claude Code, Codex and Antigravity between them in a click.
+        Save each AI coding account once, then switch Claude Code and Codex between them in a click and watch Antigravity usage.
         AltFlip uses each tool's own sign-in and never asks for your password.
       </p>
       <Button variant="primary" className="mt-6" onClick={() => openAdd("any")}>

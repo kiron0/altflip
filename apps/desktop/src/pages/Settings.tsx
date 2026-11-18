@@ -7,6 +7,7 @@ import { useApp } from "@/lib/store";
 import { PageHeader } from "@/components/PageHeader";
 import { ProviderIcon } from "@/components/ProviderIcon";
 import { Button } from "@/components/ui/button";
+import { UsageOnlyButton } from "@/components/UsageOnly";
 import { Badge, Card, Dialog, Field, Input, SectionLabel, Segmented, Select, Switch, Tag } from "@/components/ui/primitives";
 import { SETTINGS_GROUPS } from "@/components/settingsNav";
 
@@ -251,12 +252,10 @@ export function SettingsPage({ isMac, info }: { isMac: boolean; info: AppInfo | 
                 <Badge tone="ok">Always on</Badge>
               </Row>
             </Section>
-            <Section title="Experimental">
-              <Toggle
-                k="experimentalAntigravity"
-                label="Antigravity switching"
-                hint="Switches the Google sign-in shared by the Antigravity app, agy CLI and IDE 2.6+. Running Antigravity apps are restarted after you confirm."
-              />
+            <Section title="Antigravity">
+              <Row label="Antigravity switching" hint="AltFlip shows Antigravity usage but doesn't switch its accounts.">
+                <UsageOnlyButton />
+              </Row>
             </Section>
           </>
         )}
