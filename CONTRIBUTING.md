@@ -15,7 +15,7 @@ Before opening a pull request:
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-pnpm --filter @altflip/desktop typecheck
+pnpm --filter @altflip/desktop build
 ```
 
 ## Ground rules
@@ -33,4 +33,4 @@ pnpm --filter @altflip/desktop typecheck
 4. Override `verify` if the tool has a status command.
 5. Add the provider to `ProviderId` and `registry()`, and to the UI's `ProviderIcon`.
 6. Add tests using `testutil::ctx()`, which uses an in-memory credential store and a temporary home folder.
-7. Document it in `docs/PROVIDERS.md`.
+7. Document it in `HOW-IT-WORKS.md`.
