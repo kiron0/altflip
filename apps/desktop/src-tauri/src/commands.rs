@@ -1,9 +1,9 @@
 use crate::{background, notify, show_main, tray, AppState};
-use altflip_core::{Error, ProviderId, Result};
 use altflip_core::error::ApiError;
+use altflip_core::{Error, ProviderId, Result};
 use altflip_engine::{
-    AccountPatch, AccountRow, Feed, FeedQuery, Notice, Overview, Progress, RecoveryAction, Settings,
-    SwitchOptions, SwitchOutcome, SwitchPlan, SwitchView,
+    AccountPatch, AccountRow, Feed, FeedQuery, Notice, Overview, Progress, RecoveryAction, Settings, SwitchOptions,
+    SwitchOutcome, SwitchPlan, SwitchView,
 };
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};

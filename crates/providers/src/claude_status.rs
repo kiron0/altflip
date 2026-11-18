@@ -1,7 +1,7 @@
-use ts_rs::TS;
 use altflip_core::{fsutil, Error, Result};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
+use ts_rs::TS;
 
 pub const SCRIPT_NAME: &str = "altflip-status.sh";
 pub const STATUS_DIR: &str = ".altflip-status";

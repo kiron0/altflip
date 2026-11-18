@@ -529,14 +529,13 @@ pub fn overview_stats(providers: &[StatInput], incomplete: usize, now: DateTime<
     let attention = incomplete
         + providers.iter().filter(|p| matches!(p.activation_state, Some("drifted" | "signed-out"))).count()
         + providers.iter().flat_map(|p| p.accounts.iter()).filter(|a| a.needs_sign_in).count();
-    let usage_window_rolled =
-        providers.iter().flat_map(|p| p.accounts.iter()).flat_map(|a| a.usage.iter()).any(|u| {
-            let r = &u.row.reading;
-            match (r.reset_at.as_deref().and_then(text::parse), text::parse(&r.observed_at)) {
-                (Some(reset), Some(seen)) => reset <= now && seen < reset,
-                _ => false,
-            }
-        });
+    let usage_window_rolled = providers.iter().flat_map(|p| p.accounts.iter()).flat_map(|a| a.usage.iter()).any(|u| {
+        let r = &u.row.reading;
+        match (r.reset_at.as_deref().and_then(text::parse), text::parse(&r.observed_at)) {
+            (Some(reset), Some(seen)) => reset <= now && seen < reset,
+            _ => false,
+        }
+    });
     OverviewStats {
         accounts,
         tools,
@@ -657,7 +656,10 @@ pub fn feed(
             provider_name: provider_name(e.provider),
             category: k.map(|k| k.1).unwrap_or(Category::System),
             title: k.map(|k| k.0.to_string()).unwrap_or_else(|| e.kind.clone()),
-            account_name: e.account_id.as_deref().map(|id| account_label(id).unwrap_or_else(|| "Removed account".into())),
+            account_name: e
+                .account_id
+                .as_deref()
+                .map(|id| account_label(id).unwrap_or_else(|| "Removed account".into())),
             kind: e.kind,
             text: e.message,
             at: e.at,
@@ -701,10 +703,8 @@ pub fn feed(
             .flatten()
             .any(|v| v.to_lowercase().contains(&needle))
     };
-    let filtered: Vec<FeedItem> = items
-        .into_iter()
-        .filter(|i| in_scope(i) && q.category.is_none_or(|c| i.category == c) && matches(i))
-        .collect();
+    let filtered: Vec<FeedItem> =
+        items.into_iter().filter(|i| in_scope(i) && q.category.is_none_or(|c| i.category == c) && matches(i)).collect();
 
     let switches: Vec<&SwitchView> = filtered.iter().filter_map(|i| i.switch.as_ref()).collect();
     let ok = switches.iter().filter(|s| s.record.status == "succeeded").count();

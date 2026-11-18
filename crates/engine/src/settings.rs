@@ -1,8 +1,8 @@
-use ts_rs::TS;
 use altflip_core::{Error, Result};
 use altflip_database::Store;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export_to = "bindings.ts")]

@@ -4,8 +4,8 @@ mod view;
 
 pub use altflip_database::{AccountPatch, AccountRow, ActivityRow, SwitchRecord, UsageRow};
 pub use settings::{default_settings, Settings};
-pub use view::{Feed, FeedQuery, Notice, SwitchView, UsageView};
 use ts_rs::TS;
+pub use view::{Feed, FeedQuery, Notice, SwitchView, UsageView};
 
 use altflip_core::resource::{ResourceIo, Snapshot};
 use altflip_core::secrets::{SecretStore, SecretStoreStatus};
@@ -1080,8 +1080,7 @@ impl Engine {
     pub fn activity_feed(&self, q: &FeedQuery) -> Result<Feed> {
         let (history, log, labels) = {
             let db = self.db();
-            let labels: HashMap<String, String> =
-                db.accounts(None)?.into_iter().map(|a| (a.id, a.label)).collect();
+            let labels: HashMap<String, String> = db.accounts(None)?.into_iter().map(|a| (a.id, a.label)).collect();
             (db.switch_history(500)?, db.activity(1000)?, labels)
         };
         Ok(view::feed(history, log, |id| labels.get(id).cloned(), q, chrono::Utc::now()))

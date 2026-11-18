@@ -1,6 +1,6 @@
-use ts_rs::TS;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord, TS)]
 #[ts(export_to = "bindings.ts")]

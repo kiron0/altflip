@@ -1,7 +1,7 @@
 use chrono::{DateTime, Local, Locale, TimeZone, Utc};
+use serde::Serialize;
 use std::fmt::Display;
 use std::sync::OnceLock;
-use serde::Serialize;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]

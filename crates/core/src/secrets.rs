@@ -1,7 +1,7 @@
-use ts_rs::TS;
 use crate::{Error, Result};
 use std::collections::HashMap;
 use std::sync::Mutex;
+use ts_rs::TS;
 
 pub trait SecretStore: Send + Sync {
     fn get(&self, service: &str, account: &str) -> Result<Option<Vec<u8>>>;
