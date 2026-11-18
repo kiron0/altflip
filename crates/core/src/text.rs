@@ -1,4 +1,6 @@
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local, Locale, TimeZone, Utc};
+use std::fmt::Display;
+use std::sync::OnceLock;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -76,16 +78,96 @@ pub fn countdown(iso: Option<&str>, now: DateTime<Utc>) -> Option<String> {
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Region {
+    pub locale: Locale,
+    pub h24: bool,
+}
+
+pub fn region() -> Region {
+    static REGION: OnceLock<Region> = OnceLock::new();
+    *REGION.get_or_init(|| {
+        let locale = sys_locale::get_locale().as_deref().and_then(parse_locale).unwrap_or(Locale::en_US);
+        Region { locale, h24: system_hour_cycle().unwrap_or_else(|| uses_24h(locale)) }
+    })
+}
+
+pub fn parse_locale(tag: &str) -> Option<Locale> {
+    let base = tag.split(['@', '.']).next()?.replace('-', "_");
+    Locale::try_from(base.as_str()).ok().or_else(|| {
+        let lang = base.split('_').next()?.to_lowercase();
+        Locale::try_from(format!("{lang}_{}", lang.to_uppercase()).as_str()).ok()
+    })
+}
+
+pub fn uses_24h(locale: Locale) -> bool {
+    Utc.with_ymd_and_hms(2000, 1, 1, 13, 0, 0)
+        .single()
+        .is_some_and(|t| t.format_localized("%X", locale).to_string().contains("13"))
+}
+
+#[cfg(target_os = "macos")]
+fn system_hour_cycle() -> Option<bool> {
+    let read = |key: &str| {
+        std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "-g", key])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .is_some_and(|o| String::from_utf8_lossy(&o.stdout).trim() == "1")
+    };
+    if read("AppleICUForce24HourTime") {
+        Some(true)
+    } else if read("AppleICUForce12HourTime") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn system_hour_cycle() -> Option<bool> {
+    None
+}
+
 fn local(iso: &str) -> Option<DateTime<Local>> {
     parse(iso).map(|t| t.with_timezone(&Local))
 }
 
+pub fn clock_in<Tz: TimeZone>(t: &DateTime<Tz>, r: Region, seconds: bool) -> String
+where
+    Tz::Offset: Display,
+{
+    let fmt = match (r.h24, seconds) {
+        (true, false) => "%H:%M",
+        (true, true) => "%H:%M:%S",
+        (false, false) => "%-I:%M %p",
+        (false, true) => "%-I:%M:%S %p",
+    };
+    t.format_localized(fmt, r.locale).to_string()
+}
+
+pub fn date_in<Tz: TimeZone>(t: &DateTime<Tz>, r: Region) -> String
+where
+    Tz::Offset: Display,
+{
+    t.format_localized("%x", r.locale).to_string()
+}
+
+pub fn weekday_in<Tz: TimeZone>(t: &DateTime<Tz>, r: Region) -> String
+where
+    Tz::Offset: Display,
+{
+    t.format_localized("%a", r.locale).to_string()
+}
+
 pub fn clock(iso: &str) -> String {
-    local(iso).map(|t| t.format("%-I:%M %p").to_string()).unwrap_or_default()
+    local(iso).map(|t| clock_in(&t, region(), false)).unwrap_or_default()
 }
 
 pub fn full_time(iso: &str) -> String {
-    local(iso).map(|t| t.format("%b %-d, %Y, %-I:%M:%S %p").to_string()).unwrap_or_else(|| iso.to_string())
+    let r = region();
+    local(iso).map(|t| format!("{}, {}", date_in(&t, r), clock_in(&t, r, true))).unwrap_or_else(|| iso.to_string())
 }
 
 pub fn day_label(iso: &str, now: DateTime<Utc>) -> String {
@@ -97,7 +179,8 @@ pub fn day_label(iso: &str, now: DateTime<Utc>) -> String {
     } else if today.pred_opt() == Some(day) {
         "Yesterday".into()
     } else {
-        t.format("%a, %b %-d").to_string()
+        let r = region();
+        format!("{} {}", weekday_in(&t, r), date_in(&t, r))
     }
 }
 
@@ -107,7 +190,9 @@ pub fn reset_text(iso: Option<&str>, now: DateTime<Utc>) -> Option<String> {
     if (t - now).num_milliseconds() < 86_400_000 {
         return Some(format!("Resets in {}", countdown(Some(iso), now)?));
     }
-    Some(format!("Resets {}", t.with_timezone(&Local).format("%a %-I:%M %p")))
+    let t = t.with_timezone(&Local);
+    let r = region();
+    Some(format!("Resets {} {}", weekday_in(&t, r), clock_in(&t, r, false)))
 }
 
 pub fn duration_text(ms: i64) -> String {
@@ -180,6 +265,25 @@ mod tests {
         assert_eq!(relative_time(Some("2026-01-01T01:10:00Z"), now), "in 10 mins");
         assert_eq!(relative_time(None, now), "never");
         assert_eq!(relative_time(Some("nope"), now), "unknown");
+    }
+
+    #[test]
+    fn locale_formats() {
+        assert_eq!(parse_locale("en-GB"), Some(Locale::en_GB));
+        assert_eq!(parse_locale("en_US@rg=bdzzzz"), Some(Locale::en_US));
+        assert_eq!(parse_locale("de"), Some(Locale::de_DE));
+        assert!(!uses_24h(Locale::en_US));
+        assert!(uses_24h(Locale::de_DE));
+        assert!(uses_24h(Locale::en_GB));
+        let t = at("2026-01-02T13:05:09Z");
+        let us = Region { locale: Locale::en_US, h24: false };
+        let de = Region { locale: Locale::de_DE, h24: true };
+        assert_eq!(clock_in(&t, us, false), "1:05 PM");
+        assert_eq!(clock_in(&t, us, true), "1:05:09 PM");
+        assert_eq!(clock_in(&t, de, false), "13:05");
+        assert_eq!(date_in(&t, us), "01/02/2026");
+        assert_eq!(date_in(&t, de), "02.01.2026");
+        assert_eq!(weekday_in(&t, de), "Fr");
     }
 
     #[test]

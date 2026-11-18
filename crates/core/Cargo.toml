@@ -10,6 +10,7 @@ serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
 thiserror.workspace = true
 chrono.workspace = true
+sys-locale.workspace = true
 ulid.workspace = true
 sha2.workspace = true
 hex.workspace = true
